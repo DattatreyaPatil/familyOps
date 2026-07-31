@@ -1443,14 +1443,23 @@ function FinancePage() {
 
   async function addExpense() {
     const datedAt = expenseDate ? `${expenseDate}T12:00:00.000Z` : new Date().toISOString();
-    if (receiptFile) {
-      await api.addReceiptImage(vendor, amount, receiptFile, category, datedAt);
-      setReceiptFile(undefined);
-    } else {
-      await api.addReceipt(vendor, amount, category, datedAt);
+    const savedMonth = datedAt.slice(0, 7);
+    try {
+      if (receiptFile) {
+        await api.addReceiptImage(vendor, amount, receiptFile, category, datedAt);
+        setReceiptFile(undefined);
+      } else {
+        await api.addReceipt(vendor, amount, category, datedAt);
+      }
+      if (savedMonth !== month) {
+        setMonth(savedMonth);
+      }
+      await loadDashboard(savedMonth);
+      const categoryLabel = financeCategories.find((option) => option.value === category)?.label ?? category;
+      setFinanceNotice(`Receipt saved in ${categoryLabel} for ${formatMonth(savedMonth)}.`);
+    } catch (error) {
+      setFinanceNotice(error instanceof Error ? error.message : "Receipt could not be saved.");
     }
-    await loadDashboard(month);
-    setFinanceNotice("Receipt saved.");
   }
 
   async function deleteExpense(expenseId: string) {
