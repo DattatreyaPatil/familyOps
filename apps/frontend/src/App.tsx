@@ -744,22 +744,6 @@ function KitchenPage() {
     }
   }
 
-  async function planFortnight() {
-    if (!library) {
-      return;
-    }
-    const meals = library.regionalPlan.slice(0, 7).map((meal, index) => ({
-      id: `regional-${dateForPlanDay(planStartDate, meal.day)}-${meal.mealType}-${meal.recipe.title}`,
-      audience: "family" as const,
-      day: index + 1,
-      date: dateForPlanDay(planStartDate, meal.day),
-      mealType: meal.mealType,
-      recipe: meal.recipe
-    }));
-    setPickedMeals((current) => mergePickedMeals(current, meals));
-    setNotice("Regional meals added to the visible picked week.");
-  }
-
   function planKidsDay() {
     const selectedPlan = library?.kidsPlan.find((day) => day.ageBand === kidsAgeBand && day.day === selectedKidsDay);
     if (!selectedPlan) {
@@ -830,6 +814,10 @@ function KitchenPage() {
             ))}
           </div>
           <div className="meal-preferences">
+            <label>
+              Week starts
+              <input type="date" value={planStartDate} onChange={(event) => event.target.value && setPlanStartDate(event.target.value)} />
+            </label>
             <label>
               Effort
               <select value={effort} onChange={(event) => setEffort(event.target.value as MealEffort)}>
@@ -909,54 +897,6 @@ function KitchenPage() {
       )}
       {library && (
         <>
-          <section className="meal-planner">
-            <div className="planner-header">
-              <div>
-                <span>Regional rotation</span>
-                <h2>15-day Karnataka and Andhra meal plan</h2>
-              </div>
-              <div className="planner-controls">
-                <label>
-                  Start date
-                  <input type="date" value={planStartDate} onChange={(event) => event.target.value && setPlanStartDate(event.target.value)} />
-                </label>
-                <button onClick={planFortnight}>Plan all 15 days</button>
-              </div>
-            </div>
-            <div className="meal-table-wrap">
-              <table className="meal-table">
-                <thead>
-                  <tr>
-                    <th>Day</th>
-                    <th>Region</th>
-                    <th>Dish</th>
-                    <th>Meal</th>
-                    <th>Serving idea</th>
-                    <th>Prep</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {library.regionalPlan.map((meal) => (
-                    <tr key={meal.day}>
-                      <td>
-                        <strong>{meal.day}</strong>
-                        <small>{formatShortDate(dateForPlanDay(planStartDate, meal.day))}</small>
-                      </td>
-                      <td><span className={`region-tag ${meal.region.toLowerCase()}`}>{meal.region === "KARNATAKA" ? "Karnataka" : "Andhra"}</span></td>
-                      <td><strong>{meal.recipe.title}</strong></td>
-                      <td>{formatMealType(meal.mealType)}</td>
-                      <td>{meal.servingNote}</td>
-                      <td>{meal.recipe.prepTimeMinutes} min</td>
-                      <td>
-                        <button onClick={() => pickRecipe(meal.recipe, "family", meal.day - 1, meal.mealType)}>Pick</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
           <section className="kids-meal-library">
             <div className="planner-header">
               <div>

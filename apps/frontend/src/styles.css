@@ -642,6 +642,7 @@ button:active {
   text-transform: uppercase;
 }
 
+.meal-preferences input,
 .meal-preferences select {
   min-height: 42px;
   border: 1px solid var(--color-border-strong);
