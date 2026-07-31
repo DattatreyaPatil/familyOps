@@ -5,6 +5,7 @@ import type {
   FinanceDashboard,
   KitchenLibrary,
   KitchenResult,
+  MealGenerationInput,
   Profile,
   ReceiptAnalysis,
   Recipe,
@@ -111,6 +112,8 @@ export const api = {
   },
   aiStatus: () => (useSupabaseAi() ? requestSupabaseFunction<AiStatus>("ai-status") : request<AiStatus>("/api/ai/status")),
   kitchenLibrary: () => request<KitchenLibrary>("/api/kitchen/library"),
+  generateMeals: (input: MealGenerationInput) =>
+    request<KitchenResult>("/api/kitchen/generate-meals", { method: "POST", body: JSON.stringify(input) }),
   selectRecipe: (recipe: Recipe, date = new Date().toISOString()) =>
     request("/api/kitchen/select-recipe", {
       method: "POST",

@@ -35,6 +35,8 @@ import type {
   KidsAgeBand,
   KitchenLibrary,
   KitchenResult,
+  MealEffort,
+  MealType,
   Profile,
   RewardCategory,
   RewardDashboard,
@@ -58,6 +60,8 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof CheckSquare }> = [
 ];
 
 const rewardCategories: RewardCategory[] = ["TREAT", "OUTING", "TOY", "SPORT", "ACTIVITY", "CUSTOM"];
+const mealTypes: MealType[] = ["BREAKFAST", "SNACK", "LUNCH", "DINNER"];
+const mealIncludes = ["Eggs", "Chicken", "Veggies", "Dal", "Rice", "Millets", "Curd"];
 const rewardIcons: Array<{ key: RewardIconKey; label: string }> = [
   { key: "ICE_CREAM", label: "Ice cream" },
   { key: "PARK", label: "Park" },
@@ -610,11 +614,16 @@ function KitchenPage() {
   const [library, setLibrary] = useState<KitchenLibrary | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savingRecipe, setSavingRecipe] = useState("");
   const [notice, setNotice] = useState("");
   const [planStartDate, setPlanStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [kidsStartDate, setKidsStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedKidsDay, setSelectedKidsDay] = useState(1);
   const [kidsAgeBand, setKidsAgeBand] = useState<KidsAgeBand>("0-1");
+  const [ingredientText, setIngredientText] = useState("rice, dal, tomato, onion, curd, carrot");
+  const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>(["LUNCH", "DINNER"]);
+  const [effort, setEffort] = useState<MealEffort>("EASY");
+  const [includes, setIncludes] = useState<string[]>(["Veggies", "Dal"]);
 
   useEffect(() => {
     Promise.all([api.kitchenLibrary(), api.aiStatus()])
@@ -638,19 +647,58 @@ function KitchenPage() {
     }
   }
 
+  async function generateMeals() {
+    setBusy(true);
+    try {
+      const generated = await api.generateMeals({
+        ingredients: ingredientText,
+        mealTypes: selectedMealTypes,
+        effort,
+        includes
+      });
+      setResult(generated);
+      setNotice(`Generated ${generated.recipes.length} dish ideas from your ingredients.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Meal generation failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleMealType(mealType: MealType) {
+    setSelectedMealTypes((current) =>
+      current.includes(mealType) ? current.filter((item) => item !== mealType) : [...current, mealType]
+    );
+  }
+
+  function toggleInclude(item: string) {
+    setIncludes((current) => (current.includes(item) ? current.filter((value) => value !== item) : [...current, item]));
+  }
+
   async function planRecipe(recipe: KitchenLibrary["regionalPlan"][number]["recipe"], date: string) {
-    await api.selectRecipe(recipe, `${date}T12:00:00.000Z`);
-    setNotice(`${recipe.title} added to the meal plan.`);
+    setSavingRecipe(recipe.title);
+    try {
+      await api.selectRecipe(recipe, `${date}T12:00:00.000Z`);
+      setNotice(`${recipe.title} added to the meal plan.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not add this recipe to the meal plan.");
+    } finally {
+      setSavingRecipe("");
+    }
   }
 
   async function planFortnight() {
     if (!library) {
       return;
     }
-    await Promise.all(
-      library.regionalPlan.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(planStartDate, meal.day)}T12:00:00.000Z`))
-    );
-    setNotice("All 15 regional meals added to the plan.");
+    try {
+      await Promise.all(
+        library.regionalPlan.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(planStartDate, meal.day)}T12:00:00.000Z`))
+      );
+      setNotice("All 15 regional meals added to the plan.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not add the 15-day regional plan.");
+    }
   }
 
   async function planKidsDay() {
@@ -658,10 +706,14 @@ function KitchenPage() {
     if (!selectedPlan) {
       return;
     }
-    await Promise.all(
-      selectedPlan.meals.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(kidsStartDate, selectedKidsDay)}T12:00:00.000Z`))
-    );
-    setNotice(`All meals for ${formatShortDate(dateForPlanDay(kidsStartDate, selectedKidsDay))} added to the kids plan.`);
+    try {
+      await Promise.all(
+        selectedPlan.meals.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(kidsStartDate, selectedKidsDay)}T12:00:00.000Z`))
+      );
+      setNotice(`All meals for ${formatShortDate(dateForPlanDay(kidsStartDate, selectedKidsDay))} added to the kids plan.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not add the selected kids day.");
+    }
   }
 
   async function planKidsFortnight() {
@@ -669,12 +721,16 @@ function KitchenPage() {
     if (!plans) {
       return;
     }
-    await Promise.all(
-      plans.flatMap((day) =>
-        day.meals.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(kidsStartDate, day.day)}T12:00:00.000Z`))
-      )
-    );
-    setNotice(`All 15 days added for the ${kidsAgeBand} years meal plan.`);
+    try {
+      await Promise.all(
+        plans.flatMap((day) =>
+          day.meals.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(kidsStartDate, day.day)}T12:00:00.000Z`))
+        )
+      );
+      setNotice(`All 15 days added for the ${kidsAgeBand} years meal plan.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not add the kids 15-day plan.");
+    }
   }
 
   return (
@@ -687,20 +743,65 @@ function KitchenPage() {
           <span>{aiStatus.enabled ? `Gemini ready: ${aiStatus.model}` : "Gemini not configured: using demo scan results"}</span>
         </div>
       )}
-      <section className="kitchen-tools">
-        <label className="dropzone">
-          <Camera size={34} />
-          <strong>{busy ? "Analyzing fridge..." : "Fridge scan"}</strong>
-          <span>{aiStatus?.enabled ? "Image analysis enabled." : "Demo ingredients available."}</span>
+      <section className="kitchen-studio">
+        <div className="pantry-chat">
+          <div>
+            <span className="section-kicker">Pantry chat</span>
+            <h2>What do you have at home?</h2>
+          </div>
+          <textarea
+            value={ingredientText}
+            onChange={(event) => setIngredientText(event.target.value)}
+            placeholder="Example: rice, dal, tomato, onion, curd, eggs, chicken, spinach"
+          />
+          <div className="meal-option-grid" aria-label="Meal types">
+            {mealTypes.map((mealType) => (
+              <label className="choice-pill" key={mealType}>
+                <input
+                  type="checkbox"
+                  checked={selectedMealTypes.includes(mealType)}
+                  onChange={() => toggleMealType(mealType)}
+                />
+                <span>{formatMealType(mealType)}</span>
+              </label>
+            ))}
+          </div>
+          <div className="meal-preferences">
+            <label>
+              Effort
+              <select value={effort} onChange={(event) => setEffort(event.target.value as MealEffort)}>
+                <option value="EASY">Easy weekday</option>
+                <option value="MEDIUM">Medium effort</option>
+                <option value="WEEKEND">Weekend cooking</option>
+              </select>
+            </label>
+            <div>
+              <span>Include</span>
+              <div className="include-grid">
+                {mealIncludes.map((item) => (
+                  <label className="choice-pill compact" key={item}>
+                    <input type="checkbox" checked={includes.includes(item)} onChange={() => toggleInclude(item)} />
+                    <span>{item}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="kitchen-command-row">
+            <button className="primary-button" onClick={generateMeals} disabled={busy || selectedMealTypes.length === 0}>
+              {busy ? "Generating..." : "Generate dishes"}
+            </button>
+            <button className="secondary-planner-action" onClick={generateMeals} disabled={busy || selectedMealTypes.length === 0}>
+              Regenerate plan
+            </button>
+          </div>
+        </div>
+        <label className="dropzone compact-scan">
+          <Camera size={30} />
+          <strong>{busy ? "Analyzing..." : "Fridge scan"}</strong>
+          <span>{aiStatus?.enabled ? "Upload a kitchen image." : "Image demo available."}</span>
           <input type="file" accept="image/*" onChange={(event) => analyze(event.target.files?.[0])} />
         </label>
-        <div className="kitchen-actions">
-          <strong>Ingredient suggestions</strong>
-          <p>Generate quick recipes from items already at home.</p>
-          <button className="primary-button" onClick={() => analyze()} disabled={busy}>
-            Run demo scan
-          </button>
-        </div>
       </section>
       {result && (
         <>
@@ -714,17 +815,24 @@ function KitchenPage() {
               ))}
             </div>
           </section>
-          <div className="recipe-slider">
+          <div className="recipe-slider generated-recipes">
             {result.recipes.map((recipe, index) => (
               <article className="recipe-card" key={recipe.title}>
-                <span>Recipe idea #{index + 1}</span>
+                <span>Dish idea #{index + 1}</span>
                 <h2>{recipe.title}</h2>
                 <p>
                   {recipe.prepTimeMinutes} min, {recipe.isKidFriendly ? "Kid friendly" : "Parent plate"}
                 </p>
+                <div className="mini-chip-row">
+                  {recipe.ingredientsUsed.slice(0, 5).map((ingredient) => (
+                    <span key={ingredient}>{ingredient}</span>
+                  ))}
+                </div>
                 <h3>Missing</h3>
-                <p>{recipe.missingIngredients.join(", ")}</p>
-                <button onClick={() => planRecipe(recipe, kidsStartDate)}>Add to meal plan</button>
+                <p>{recipe.missingIngredients.length ? recipe.missingIngredients.join(", ") : "Nothing major"}</p>
+                <button onClick={() => planRecipe(recipe, planStartDate)} disabled={savingRecipe === recipe.title}>
+                  {savingRecipe === recipe.title ? "Adding..." : "Add to meal plan"}
+                </button>
               </article>
             ))}
           </div>
@@ -771,7 +879,11 @@ function KitchenPage() {
                       <td>{formatMealType(meal.mealType)}</td>
                       <td>{meal.servingNote}</td>
                       <td>{meal.recipe.prepTimeMinutes} min</td>
-                      <td><button onClick={() => planRecipe(meal.recipe, dateForPlanDay(planStartDate, meal.day))}>Pick</button></td>
+                      <td>
+                        <button onClick={() => planRecipe(meal.recipe, dateForPlanDay(planStartDate, meal.day))} disabled={savingRecipe === meal.recipe.title}>
+                          {savingRecipe === meal.recipe.title ? "Adding..." : "Pick"}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -850,7 +962,11 @@ function KitchenPage() {
                         <td>{meal.recipe.title}</td>
                         <td>{meal.textureNote}</td>
                         <td>{meal.recipe.prepTimeMinutes} min</td>
-                        <td><button onClick={() => planRecipe(meal.recipe, dateForPlanDay(kidsStartDate, selectedKidsDay))}>Pick</button></td>
+                        <td>
+                          <button onClick={() => planRecipe(meal.recipe, dateForPlanDay(kidsStartDate, selectedKidsDay))} disabled={savingRecipe === meal.recipe.title}>
+                            {savingRecipe === meal.recipe.title ? "Adding..." : "Pick"}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                 </tbody>

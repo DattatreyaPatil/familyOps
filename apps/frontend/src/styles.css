@@ -549,6 +549,135 @@ button:active {
   margin-bottom: 18px;
 }
 
+.kitchen-studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+
+.pantry-chat {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.section-kicker {
+  display: block;
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pantry-chat h2 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+
+.pantry-chat textarea {
+  width: 100%;
+  min-height: 104px;
+  resize: vertical;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 12px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.meal-option-grid,
+.include-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice-pill {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.choice-pill.compact {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.choice-pill input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+}
+
+.meal-preferences {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.meal-preferences label,
+.meal-preferences > div > span {
+  display: grid;
+  gap: 6px;
+  color: var(--color-text-soft);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.meal-preferences select {
+  min-height: 42px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.kitchen-command-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.kitchen-command-row .primary-button {
+  width: auto;
+  min-width: 180px;
+  margin: 0;
+}
+
+.kitchen-command-row .secondary-planner-action {
+  min-height: var(--touch-target);
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 0 14px;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  font-weight: 900;
+}
+
+.compact-scan {
+  min-height: 100%;
+}
+
 .kitchen-tools .dropzone {
   min-height: 168px;
 }
@@ -632,6 +761,26 @@ button:active {
 
 .recipe-card {
   padding: 16px;
+}
+
+.generated-recipes {
+  margin-bottom: 18px;
+}
+
+.mini-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.mini-chip-row span {
+  padding: 5px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .recipe-card > span {
@@ -1891,6 +2040,15 @@ button:active {
 
   .kitchen-tools {
     grid-template-columns: 1fr;
+  }
+
+  .kitchen-studio,
+  .meal-preferences {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-scan {
+    min-height: 150px;
   }
 
   .planner-header {

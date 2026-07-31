@@ -95,6 +95,7 @@ export type Recipe = {
 };
 
 export type MealType = "BREAKFAST" | "SNACK" | "LUNCH" | "DINNER";
+export type MealEffort = "EASY" | "MEDIUM" | "WEEKEND";
 
 export type RegionalMealPlanDay = {
   day: number;
@@ -132,6 +133,13 @@ export type KitchenResult = {
   recipes: Recipe[];
   confidence: number;
   provider: "DEMO" | "GEMINI";
+};
+
+export type MealGenerationInput = {
+  ingredients: string;
+  mealTypes: MealType[];
+  effort: MealEffort;
+  includes: string[];
 };
 
 export type AiStatus = {
