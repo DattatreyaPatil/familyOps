@@ -1,0 +1,44 @@
+:root {
+  --font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+
+  --color-page: #edf3f8;
+  --color-app: #f7fafc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef3f7;
+  --color-surface-strong: #dce6ee;
+  --color-border: #d7e0e8;
+  --color-border-strong: #b9c8d6;
+
+  --color-text: #17212b;
+  --color-text-muted: #526170;
+  --color-text-soft: #8190a0;
+  --color-inverse: #ffffff;
+
+  --color-primary: #2454d6;
+  --color-primary-strong: #14b8a6;
+  --color-primary-soft: #dbeafe;
+  --color-primary-text: #1d4ed8;
+
+  --color-kids: #f5b947;
+  --color-kids-strong: #f59e0b;
+  --color-kids-soft: #ffddb8;
+  --color-kids-text: #2a1700;
+
+  --color-finance: #059669;
+  --color-finance-soft: #ecfdf5;
+  --color-trips: #2563eb;
+  --color-trips-soft: #eff6ff;
+  --color-warning: #c2410c;
+  --color-warning-soft: #fff7ed;
+  --color-danger: #ba1a1a;
+  --color-danger-soft: #fff1f2;
+  --color-danger-border: #fecdd3;
+
+  --shadow-card: 0 18px 44px rgba(28, 44, 64, 0.08);
+  --shadow-shell: 0 24px 80px rgba(24, 30, 45, 0.18);
+
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
+  --touch-target: 48px;
+}

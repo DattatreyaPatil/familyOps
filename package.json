@@ -1,0 +1,15 @@
+{
+  "name": "famops-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/frontend"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/frontend run dev",
+    "build": "npm --workspace apps/frontend run build",
+    "preview": "npm --workspace apps/frontend run preview",
+    "typecheck": "npm --workspace apps/frontend run typecheck"
+  },
+  "devDependencies": {}
+}
