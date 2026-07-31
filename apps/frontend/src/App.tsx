@@ -38,6 +38,7 @@ import type {
   MealEffort,
   MealType,
   Profile,
+  Recipe,
   RewardCategory,
   RewardDashboard,
   RewardDefinition,
@@ -49,6 +50,15 @@ import type {
 } from "./types";
 
 type Tab = "routines" | "tasks" | "kitchen" | "finances" | "kids" | "admin";
+type KitchenAudience = "family" | "kids";
+type PickedMeal = {
+  id: string;
+  audience: KitchenAudience;
+  day: number;
+  date: string;
+  mealType: MealType;
+  recipe: Recipe;
+};
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof CheckSquare }> = [
   { id: "routines", label: "Routines", icon: CheckSquare },
@@ -610,11 +620,12 @@ function TasksPage() {
 }
 
 function KitchenPage() {
-  const [result, setResult] = useState<KitchenResult | null>(null);
+  const [familyResult, setFamilyResult] = useState<KitchenResult | null>(null);
+  const [kidsResult, setKidsResult] = useState<KitchenResult | null>(null);
   const [library, setLibrary] = useState<KitchenLibrary | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const [savingRecipe, setSavingRecipe] = useState("");
+  const [savingPlan, setSavingPlan] = useState(false);
   const [notice, setNotice] = useState("");
   const [planStartDate, setPlanStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [kidsStartDate, setKidsStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -622,14 +633,24 @@ function KitchenPage() {
   const [kidsAgeBand, setKidsAgeBand] = useState<KidsAgeBand>("0-1");
   const [ingredientText, setIngredientText] = useState("rice, dal, tomato, onion, curd, carrot");
   const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>(["LUNCH", "DINNER"]);
+  const [kidsMealTypes, setKidsMealTypes] = useState<MealType[]>(["BREAKFAST", "LUNCH", "DINNER"]);
   const [effort, setEffort] = useState<MealEffort>("EASY");
   const [includes, setIncludes] = useState<string[]>(["Veggies", "Dal"]);
+  const [pickedMeals, setPickedMeals] = useState<PickedMeal[]>([]);
 
   useEffect(() => {
     Promise.all([api.kitchenLibrary(), api.aiStatus()])
       .then(([mealLibrary, status]) => {
         setLibrary(mealLibrary);
         setAiStatus(status);
+        const initialFamilyRecipes = mealLibrary.regionalPlan.slice(0, 14).map((meal) => meal.recipe);
+        setFamilyResult({
+          source: "Regional rotation",
+          ingredients: ["rice", "dal", "vegetables", "curd"],
+          recipes: initialFamilyRecipes,
+          confidence: 1,
+          provider: "DEMO"
+        });
       })
       .catch((loadError) => setNotice(loadError instanceof Error ? loadError.message : "Kitchen data could not be loaded."));
   }, []);
@@ -638,8 +659,8 @@ function KitchenPage() {
     setBusy(true);
     try {
       const analysis = await api.analyzeKitchen(file);
-      setResult(analysis);
-      setNotice(analysis.provider === "GEMINI" ? "Gemini analyzed the image." : "Demo analysis shown. Add a backend Gemini key for image results.");
+      setFamilyResult(expandToWeek(analysis, selectedMealTypes));
+      setNotice(analysis.provider === "GEMINI" ? "Fridge scan generated recipe candidates." : "Demo fridge scan generated recipe candidates.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Kitchen analysis failed.");
     } finally {
@@ -647,7 +668,7 @@ function KitchenPage() {
     }
   }
 
-  async function generateMeals() {
+  async function generateFamilyMeals() {
     setBusy(true);
     try {
       const generated = await api.generateMeals({
@@ -656,8 +677,8 @@ function KitchenPage() {
         effort,
         includes
       });
-      setResult(generated);
-      setNotice(`Generated ${generated.recipes.length} dish ideas from your ingredients.`);
+      setFamilyResult(generated);
+      setNotice(`Generated ${generated.recipes.length} family dish candidates. Pick any meals you want to keep.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Meal generation failed.");
     } finally {
@@ -665,8 +686,22 @@ function KitchenPage() {
     }
   }
 
-  function toggleMealType(mealType: MealType) {
-    setSelectedMealTypes((current) =>
+  function generateKidsMeals() {
+    const plans = library?.kidsPlan.filter((day) => day.ageBand === kidsAgeBand).slice(0, 7) ?? [];
+    const recipes = plans.flatMap((day) => day.meals.filter((meal) => kidsMealTypes.includes(meal.mealType)).map((meal) => meal.recipe));
+    setKidsResult({
+      source: `${kidsAgeBand} kids menu`,
+      ingredients: ["rice", "dal", "ragi", "vegetables", "curd"],
+      recipes,
+      confidence: 1,
+      provider: "DEMO"
+    });
+    setNotice(`Regenerated ${recipes.length} age-aware kids meals. Existing picked meals are still kept.`);
+  }
+
+  function toggleMealType(mealType: MealType, audience: KitchenAudience) {
+    const setter = audience === "kids" ? setKidsMealTypes : setSelectedMealTypes;
+    setter((current) =>
       current.includes(mealType) ? current.filter((item) => item !== mealType) : [...current, mealType]
     );
   }
@@ -675,15 +710,37 @@ function KitchenPage() {
     setIncludes((current) => (current.includes(item) ? current.filter((value) => value !== item) : [...current, item]));
   }
 
-  async function planRecipe(recipe: KitchenLibrary["regionalPlan"][number]["recipe"], date: string) {
-    setSavingRecipe(recipe.title);
+  function pickRecipe(recipe: Recipe, audience: KitchenAudience, index: number, mealType?: MealType) {
+    const activeTypes = audience === "kids" ? kidsMealTypes : selectedMealTypes;
+    const safeTypes = activeTypes.length ? activeTypes : mealTypes;
+    const day = Math.floor(index / safeTypes.length) + 1;
+    const slot = mealType ?? safeTypes[index % safeTypes.length];
+    const date = dateForPlanDay(audience === "kids" ? kidsStartDate : planStartDate, Math.min(day, 7));
+    const id = `${audience}-${date}-${slot}-${recipe.title}`;
+    setPickedMeals((current) => {
+      if (current.some((meal) => meal.id === id)) return current;
+      return [...current, { id, audience, day: Math.min(day, 7), date, mealType: slot, recipe }];
+    });
+    setNotice(`${recipe.title} picked for ${formatShortDate(date)} ${formatMealType(slot)}.`);
+  }
+
+  function removePickedMeal(id: string) {
+    setPickedMeals((current) => current.filter((meal) => meal.id !== id));
+  }
+
+  async function savePickedPlan() {
+    if (!pickedMeals.length) {
+      setNotice("Pick at least one recipe before saving the week plan.");
+      return;
+    }
+    setSavingPlan(true);
     try {
-      await api.selectRecipe(recipe, `${date}T12:00:00.000Z`);
-      setNotice(`${recipe.title} added to the meal plan.`);
+      await Promise.all(pickedMeals.map((meal) => api.selectRecipe(meal.recipe, `${meal.date}T12:00:00.000Z`)));
+      setNotice(`${pickedMeals.length} picked meals saved to Supabase meal plan.`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not add this recipe to the meal plan.");
+      setNotice(error instanceof Error ? error.message : "Could not save the picked meal plan.");
     } finally {
-      setSavingRecipe("");
+      setSavingPlan(false);
     }
   }
 
@@ -691,46 +748,52 @@ function KitchenPage() {
     if (!library) {
       return;
     }
-    try {
-      await Promise.all(
-        library.regionalPlan.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(planStartDate, meal.day)}T12:00:00.000Z`))
-      );
-      setNotice("All 15 regional meals added to the plan.");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not add the 15-day regional plan.");
-    }
+    const meals = library.regionalPlan.slice(0, 7).map((meal, index) => ({
+      id: `regional-${dateForPlanDay(planStartDate, meal.day)}-${meal.mealType}-${meal.recipe.title}`,
+      audience: "family" as const,
+      day: index + 1,
+      date: dateForPlanDay(planStartDate, meal.day),
+      mealType: meal.mealType,
+      recipe: meal.recipe
+    }));
+    setPickedMeals((current) => mergePickedMeals(current, meals));
+    setNotice("Regional meals added to the visible picked week.");
   }
 
-  async function planKidsDay() {
+  function planKidsDay() {
     const selectedPlan = library?.kidsPlan.find((day) => day.ageBand === kidsAgeBand && day.day === selectedKidsDay);
     if (!selectedPlan) {
       return;
     }
-    try {
-      await Promise.all(
-        selectedPlan.meals.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(kidsStartDate, selectedKidsDay)}T12:00:00.000Z`))
-      );
-      setNotice(`All meals for ${formatShortDate(dateForPlanDay(kidsStartDate, selectedKidsDay))} added to the kids plan.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not add the selected kids day.");
-    }
+    const meals = selectedPlan.meals.map((meal) => ({
+      id: `kids-${dateForPlanDay(kidsStartDate, selectedKidsDay)}-${meal.mealType}-${meal.recipe.title}`,
+      audience: "kids" as const,
+      day: selectedKidsDay,
+      date: dateForPlanDay(kidsStartDate, selectedKidsDay),
+      mealType: meal.mealType,
+      recipe: meal.recipe
+    }));
+    setPickedMeals((current) => mergePickedMeals(current, meals));
+    setNotice(`Kids meals for ${formatShortDate(dateForPlanDay(kidsStartDate, selectedKidsDay))} added to picked week.`);
   }
 
-  async function planKidsFortnight() {
-    const plans = library?.kidsPlan.filter((day) => day.ageBand === kidsAgeBand);
+  function planKidsFortnight() {
+    const plans = library?.kidsPlan.filter((day) => day.ageBand === kidsAgeBand).slice(0, 7);
     if (!plans) {
       return;
     }
-    try {
-      await Promise.all(
-        plans.flatMap((day) =>
-          day.meals.map((meal) => api.selectRecipe(meal.recipe, `${dateForPlanDay(kidsStartDate, day.day)}T12:00:00.000Z`))
-        )
-      );
-      setNotice(`All 15 days added for the ${kidsAgeBand} years meal plan.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not add the kids 15-day plan.");
-    }
+    const meals = plans.flatMap((day) =>
+      day.meals.map((meal) => ({
+        id: `kids-${dateForPlanDay(kidsStartDate, day.day)}-${meal.mealType}-${meal.recipe.title}`,
+        audience: "kids" as const,
+        day: day.day,
+        date: dateForPlanDay(kidsStartDate, day.day),
+        mealType: meal.mealType,
+        recipe: meal.recipe
+      }))
+    );
+    setPickedMeals((current) => mergePickedMeals(current, meals));
+    setNotice(`Kids week for ${kidsAgeBand} years added to picked meals.`);
   }
 
   return (
@@ -760,7 +823,7 @@ function KitchenPage() {
                 <input
                   type="checkbox"
                   checked={selectedMealTypes.includes(mealType)}
-                  onChange={() => toggleMealType(mealType)}
+                  onChange={() => toggleMealType(mealType, "family")}
                 />
                 <span>{formatMealType(mealType)}</span>
               </label>
@@ -788,10 +851,10 @@ function KitchenPage() {
             </div>
           </div>
           <div className="kitchen-command-row">
-            <button className="primary-button" onClick={generateMeals} disabled={busy || selectedMealTypes.length === 0}>
-              {busy ? "Generating..." : "Generate dishes"}
+            <button className="primary-button" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0}>
+              {busy ? "Generating..." : "Generate week dishes"}
             </button>
-            <button className="secondary-planner-action" onClick={generateMeals} disabled={busy || selectedMealTypes.length === 0}>
+            <button className="secondary-planner-action" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0}>
               Regenerate plan
             </button>
           </div>
@@ -799,16 +862,17 @@ function KitchenPage() {
         <label className="dropzone compact-scan">
           <Camera size={30} />
           <strong>{busy ? "Analyzing..." : "Fridge scan"}</strong>
-          <span>{aiStatus?.enabled ? "Upload a kitchen image." : "Image demo available."}</span>
+          <span>{aiStatus?.enabled ? "Upload a kitchen image to generate recipes." : "Uses the same recipe candidate area."}</span>
           <input type="file" accept="image/*" onChange={(event) => analyze(event.target.files?.[0])} />
         </label>
       </section>
-      {result && (
+      <PickedMealPlan meals={pickedMeals} onRemove={removePickedMeal} onSave={savePickedPlan} saving={savingPlan} />
+      {familyResult && (
         <>
           <section className="card">
-            <h2>Found ingredients</h2>
+            <h2>Recipe inputs</h2>
             <div className="chip-row">
-              {result.ingredients.map((ingredient) => (
+              {familyResult.ingredients.map((ingredient) => (
                 <span className="chip" key={ingredient}>
                   {ingredient}
                 </span>
@@ -816,9 +880,12 @@ function KitchenPage() {
             </div>
           </section>
           <div className="recipe-slider generated-recipes">
-            {result.recipes.map((recipe, index) => (
+            {familyResult.recipes.map((recipe, index) => (
               <article className="recipe-card" key={recipe.title}>
-                <span>Dish idea #{index + 1}</span>
+                <span>
+                  Day {Math.floor(index / Math.max(selectedMealTypes.length, 1)) + 1} -{" "}
+                  {formatMealType(selectedMealTypes[index % Math.max(selectedMealTypes.length, 1)] ?? "LUNCH")}
+                </span>
                 <h2>{recipe.title}</h2>
                 <p>
                   {recipe.prepTimeMinutes} min, {recipe.isKidFriendly ? "Kid friendly" : "Parent plate"}
@@ -830,8 +897,10 @@ function KitchenPage() {
                 </div>
                 <h3>Missing</h3>
                 <p>{recipe.missingIngredients.length ? recipe.missingIngredients.join(", ") : "Nothing major"}</p>
-                <button onClick={() => planRecipe(recipe, planStartDate)} disabled={savingRecipe === recipe.title}>
-                  {savingRecipe === recipe.title ? "Adding..." : "Add to meal plan"}
+                <button
+                  onClick={() => pickRecipe(recipe, "family", index, selectedMealTypes[index % Math.max(selectedMealTypes.length, 1)] ?? "LUNCH")}
+                >
+                  Pick
                 </button>
               </article>
             ))}
@@ -880,9 +949,7 @@ function KitchenPage() {
                       <td>{meal.servingNote}</td>
                       <td>{meal.recipe.prepTimeMinutes} min</td>
                       <td>
-                        <button onClick={() => planRecipe(meal.recipe, dateForPlanDay(planStartDate, meal.day))} disabled={savingRecipe === meal.recipe.title}>
-                          {savingRecipe === meal.recipe.title ? "Adding..." : "Pick"}
-                        </button>
+                        <button onClick={() => pickRecipe(meal.recipe, "family", meal.day - 1, meal.mealType)}>Pick</button>
                       </td>
                     </tr>
                   ))}
@@ -904,6 +971,19 @@ function KitchenPage() {
                 <button onClick={planKidsDay}>Plan selected day</button>
                 <button className="secondary-planner-action" onClick={planKidsFortnight}>Plan all 15 days</button>
               </div>
+            </div>
+            <div className="kids-generator-row">
+              <div className="meal-option-grid" aria-label="Kids meal types">
+                {mealTypes.map((mealType) => (
+                  <label className="choice-pill compact" key={mealType}>
+                    <input type="checkbox" checked={kidsMealTypes.includes(mealType)} onChange={() => toggleMealType(mealType, "kids")} />
+                    <span>{formatMealType(mealType)}</span>
+                  </label>
+                ))}
+              </div>
+              <button className="secondary-planner-action" onClick={generateKidsMeals}>
+                Regenerate kids dishes
+              </button>
             </div>
             <div className="age-tabs" aria-label="Kids age category">
               {(["0-1", "1-2", "2-3", "3+"] as KidsAgeBand[]).map((ageBand) => (
@@ -963,20 +1043,109 @@ function KitchenPage() {
                         <td>{meal.textureNote}</td>
                         <td>{meal.recipe.prepTimeMinutes} min</td>
                         <td>
-                          <button onClick={() => planRecipe(meal.recipe, dateForPlanDay(kidsStartDate, selectedKidsDay))} disabled={savingRecipe === meal.recipe.title}>
-                            {savingRecipe === meal.recipe.title ? "Adding..." : "Pick"}
-                          </button>
+                          <button onClick={() => pickRecipe(meal.recipe, "kids", selectedKidsDay - 1, meal.mealType)}>Pick</button>
                         </td>
                       </tr>
                     ))}
                 </tbody>
               </table>
             </div>
+            {kidsResult && (
+              <div className="recipe-slider generated-recipes kids-generated">
+                {kidsResult.recipes.map((recipe, index) => (
+                  <article className="recipe-card" key={`${recipe.title}-${index}`}>
+                    <span>
+                      Kids day {Math.floor(index / Math.max(kidsMealTypes.length, 1)) + 1} -{" "}
+                      {formatMealType(kidsMealTypes[index % Math.max(kidsMealTypes.length, 1)] ?? "LUNCH")}
+                    </span>
+                    <h2>{recipe.title}</h2>
+                    <p>{recipe.prepTimeMinutes} min, age-aware portion</p>
+                    <button onClick={() => pickRecipe(recipe, "kids", index, kidsMealTypes[index % Math.max(kidsMealTypes.length, 1)] ?? "LUNCH")}>
+                      Pick
+                    </button>
+                  </article>
+                ))}
+              </div>
+            )}
           </section>
         </>
       )}
     </>
   );
+}
+
+function PickedMealPlan({
+  meals,
+  onRemove,
+  onSave,
+  saving
+}: {
+  meals: PickedMeal[];
+  onRemove: (id: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const sortedMeals = [...meals].sort((a, b) => a.date.localeCompare(b.date) || mealTypes.indexOf(a.mealType) - mealTypes.indexOf(b.mealType));
+  return (
+    <section className="picked-plan">
+      <div className="planner-header">
+        <div>
+          <span>Picked plan</span>
+          <h2>Selected meals for the week</h2>
+        </div>
+        <button className="primary-button" onClick={onSave} disabled={!meals.length || saving}>
+          {saving ? "Saving..." : `Save ${meals.length || ""} picked meals`}
+        </button>
+      </div>
+      {sortedMeals.length ? (
+        <div className="picked-week-grid">
+          {Array.from({ length: 7 }, (_, index) => {
+            const day = index + 1;
+            const dayMeals = sortedMeals.filter((meal) => meal.day === day);
+            return (
+              <article className="picked-day" key={day}>
+                <span>Day {day}</span>
+                <strong>{formatShortDate(dayMeals[0]?.date ?? dateForPlanDay(new Date().toISOString().slice(0, 10), day))}</strong>
+                <div>
+                  {dayMeals.map((meal) => (
+                    <button className={`picked-meal ${meal.audience}`} key={meal.id} onClick={() => onRemove(meal.id)} title="Remove from picked plan">
+                      <small>{formatMealType(meal.mealType)} - {meal.audience === "kids" ? "Kids" : "Family"}</small>
+                      <span>{meal.recipe.title}</span>
+                    </button>
+                  ))}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="empty-picked-plan">Pick recipes from generated dishes, fridge scan results, regional meals, or kids meals.</div>
+      )}
+    </section>
+  );
+}
+
+function mergePickedMeals(current: PickedMeal[], incoming: PickedMeal[]) {
+  const existing = new Set(current.map((meal) => meal.id));
+  return [...current, ...incoming.filter((meal) => !existing.has(meal.id))];
+}
+
+function expandToWeek(result: KitchenResult, selectedTypes: MealType[]): KitchenResult {
+  const types = selectedTypes.length ? selectedTypes : ["LUNCH"];
+  const target = Math.max(7 * types.length, result.recipes.length);
+  const recipes = Array.from({ length: target }, (_, index) => {
+    const base = result.recipes[index % Math.max(result.recipes.length, 1)];
+    if (base) return index < result.recipes.length ? base : { ...base, title: `${base.title} variation ${Math.floor(index / result.recipes.length) + 1}` };
+    return {
+      title: "Quick vegetable dal rice",
+      prepTimeMinutes: 20,
+      isKidFriendly: true,
+      ingredientsUsed: result.ingredients,
+      missingIngredients: [],
+      stepByStepInstructions: ["Cook dal and rice.", "Add vegetables.", "Serve warm."]
+    };
+  });
+  return { ...result, recipes };
 }
 
 function KidsPage() {
