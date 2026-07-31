@@ -44,3 +44,12 @@ Build output directory: apps/frontend/dist
 Root directory: /
 ```
 
+Cloudflare Workers static assets:
+
+```text
+Root directory: /
+Build command: npm run build
+Deploy command: npx wrangler deploy
+Non-production deploy command: npx wrangler versions upload
+```
+
