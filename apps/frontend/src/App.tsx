@@ -659,8 +659,25 @@ function KitchenPage() {
     setBusy(true);
     try {
       const analysis = await api.analyzeKitchen(file);
-      setFamilyResult(expandToWeek(analysis, selectedMealTypes));
-      setNotice(analysis.provider === "GEMINI" ? "Fridge scan generated recipe candidates." : "Demo fridge scan generated recipe candidates.");
+      const scannedIngredients = analysis.ingredients.join(", ");
+      setIngredientText(scannedIngredients);
+      const generated = await api.generateMeals({
+        ingredients: scannedIngredients,
+        mealTypes: selectedMealTypes,
+        effort,
+        includes
+      });
+      setFamilyResult({
+        ...generated,
+        source: analysis.provider === "GEMINI" ? "Fridge scan + meal generator" : "Demo fridge scan + meal generator",
+        ingredients: analysis.ingredients.length ? analysis.ingredients : generated.ingredients,
+        provider: analysis.provider
+      });
+      setNotice(
+        analysis.provider === "GEMINI"
+          ? "Fridge scan found ingredients and generated week dishes."
+          : "Demo scan found ingredients and generated week dishes."
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Kitchen analysis failed.");
     } finally {
@@ -840,17 +857,17 @@ function KitchenPage() {
           </div>
           <div className="kitchen-command-row">
             <button className="primary-button" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0}>
-              {busy ? "Generating..." : "Generate week dishes"}
+              {busy ? "Generating..." : "Generate from chat"}
             </button>
             <button className="secondary-planner-action" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0}>
-              Regenerate plan
+              Regenerate chat plan
             </button>
           </div>
         </div>
         <label className="dropzone compact-scan">
           <Camera size={30} />
-          <strong>{busy ? "Analyzing..." : "Fridge scan"}</strong>
-          <span>{aiStatus?.enabled ? "Upload a kitchen image to generate recipes." : "Uses the same recipe candidate area."}</span>
+          <strong>{busy ? "Scanning and generating..." : "Fridge scan"}</strong>
+          <span>{aiStatus?.enabled ? "Scan image, then use the same generator." : "Demo scan uses the same generator."}</span>
           <input type="file" accept="image/*" onChange={(event) => analyze(event.target.files?.[0])} />
         </label>
       </section>
