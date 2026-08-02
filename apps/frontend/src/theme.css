@@ -42,3 +42,41 @@
   --radius-pill: 999px;
   --touch-target: 48px;
 }
+
+:root[data-theme="dark"] {
+  --color-page: #0b1118;
+  --color-app: #101821;
+  --color-surface: #17212b;
+  --color-surface-muted: #202c37;
+  --color-surface-strong: #2c3a47;
+  --color-border: #314150;
+  --color-border-strong: #4a5d6e;
+
+  --color-text: #f4f7fb;
+  --color-text-muted: #b9c5d1;
+  --color-text-soft: #8291a3;
+  --color-inverse: #ffffff;
+
+  --color-primary: #72a7ff;
+  --color-primary-strong: #2dd4bf;
+  --color-primary-soft: #17325c;
+  --color-primary-text: #bfdbfe;
+
+  --color-kids: #f8c766;
+  --color-kids-strong: #f59e0b;
+  --color-kids-soft: #3d2a13;
+  --color-kids-text: #fff7df;
+
+  --color-finance: #34d399;
+  --color-finance-soft: #12362b;
+  --color-trips: #60a5fa;
+  --color-trips-soft: #142c4d;
+  --color-warning: #fb923c;
+  --color-warning-soft: #3b2415;
+  --color-danger: #fb7185;
+  --color-danger-soft: #3a1820;
+  --color-danger-border: #7f1d1d;
+
+  --shadow-card: 0 18px 44px rgba(0, 0, 0, 0.28);
+  --shadow-shell: 0 24px 80px rgba(0, 0, 0, 0.44);
+}

@@ -12,12 +12,14 @@ import {
   Gift,
   IceCreamBowl,
   ListTodo,
+  Moon,
   PieChart,
   Save,
   Plus,
   Settings,
   Sparkles,
   Star,
+  Sun,
   TreePine,
   Trash2,
   Upload,
@@ -50,6 +52,8 @@ import type {
 } from "./types";
 
 type Tab = "routines" | "tasks" | "kitchen" | "finances" | "kids" | "admin";
+type ThemeMode = "light" | "dark";
+type RoutineDayPreset = "today" | "weekdays" | "weekend" | "full-week" | "custom";
 type KitchenAudience = "family" | "kids";
 type PickedMeal = {
   id: string;
@@ -113,6 +117,16 @@ function RewardIcon({ iconKey }: { iconKey: RewardIconKey }) {
 
 export function App() {
   const [tab, setTab] = useState<Tab>("routines");
+  const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("famops-theme") as ThemeMode | null) ?? "light");
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("famops-theme", theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((current) => (current === "light" ? "dark" : "light"));
+  }
 
   return (
     <main className="app-canvas">
@@ -125,6 +139,10 @@ export function App() {
               <span>Family operations</span>
             </div>
           </div>
+          <button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>
+            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+            <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
+          </button>
           <div className="desktop-nav-list">
             {tabs.map((item) => {
               const Icon = item.icon;
@@ -157,6 +175,10 @@ export function App() {
               </button>
             );
           })}
+          <button className="nav-button theme-nav-button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>
+            {theme === "light" ? <Moon size={22} /> : <Sun size={22} />}
+            <span>{theme === "light" ? "Dark" : "Light"}</span>
+          </button>
         </nav>
       </section>
     </main>
@@ -179,6 +201,8 @@ function RoutinesPage() {
   const [error, setError] = useState("");
   const [activeDay, setActiveDay] = useState<Weekday>(currentWeekday());
   const [newRoutineItem, setNewRoutineItem] = useState({ title: "", assignedToId: "" });
+  const [routineDayPreset, setRoutineDayPreset] = useState<RoutineDayPreset>("today");
+  const [routineTargetDays, setRoutineTargetDays] = useState<Weekday[]>([currentWeekday()]);
   const [routineDrafts, setRoutineDrafts] = useState<Record<string, { title: string; assignedToId: string }>>({});
 
   useEffect(() => {
@@ -211,15 +235,45 @@ function RoutinesPage() {
     if (!newRoutineItem.title.trim()) {
       return;
     }
-    await api.createRoutineItem({
-      routineId,
-      title: newRoutineItem.title,
-      assignedToId: newRoutineItem.assignedToId || undefined
-    });
-    const updated = await api.routines(activeDay);
-    setRoutines(updated);
-    setRoutineDrafts(makeRoutineDrafts(updated));
-    setNewRoutineItem({ title: "", assignedToId: "" });
+    try {
+      const days = routineTargetDays.length ? routineTargetDays : [activeDay];
+      const routineIds = await Promise.all(
+        days.map(async (day) => {
+          if (day === activeDay && routineId) return routineId;
+          const dayRoutines = await api.routines(day);
+          return dayRoutines[0]?.id;
+        })
+      );
+      await Promise.all(
+        routineIds.filter(Boolean).map((targetRoutineId) =>
+          api.createRoutineItem({
+            routineId: targetRoutineId!,
+            title: newRoutineItem.title,
+            assignedToId: newRoutineItem.assignedToId || undefined
+          })
+        )
+      );
+      const updated = await api.routines(activeDay);
+      setRoutines(updated);
+      setRoutineDrafts(makeRoutineDrafts(updated));
+      setNewRoutineItem({ title: "", assignedToId: "" });
+      setError(`Routine added to ${days.length === 1 ? formatWeekday(days[0]) : `${days.length} days`}.`);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Routine could not be added.");
+    }
+  }
+
+  function applyRoutinePreset(preset: RoutineDayPreset) {
+    setRoutineDayPreset(preset);
+    if (preset === "today") setRoutineTargetDays([activeDay]);
+    if (preset === "weekdays") setRoutineTargetDays(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"]);
+    if (preset === "weekend") setRoutineTargetDays(["SATURDAY", "SUNDAY"]);
+    if (preset === "full-week") setRoutineTargetDays(weekdays);
+  }
+
+  function toggleRoutineTargetDay(day: Weekday) {
+    setRoutineDayPreset("custom");
+    setRoutineTargetDays((current) => (current.includes(day) ? current.filter((item) => item !== day) : [...current, day]));
   }
 
   async function saveRoutineItem(itemId: string) {
@@ -254,8 +308,9 @@ function RoutinesPage() {
         ))}
       </div>
       {error ? (
-        <div className="notice error-notice">{error}</div>
-      ) : loading || !routine ? (
+        <div className={`notice ${error.toLowerCase().includes("could not") || error.toLowerCase().includes("failed") ? "error-notice" : ""}`}>{error}</div>
+      ) : null}
+      {loading || !routine ? (
         <div className="card">Loading routines...</div>
       ) : (
         <>
@@ -292,6 +347,29 @@ function RoutinesPage() {
               <button onClick={() => addRoutineItem(routine.id)}>
                 <Plus size={18} /> Add routine
               </button>
+            </div>
+            <div className="routine-day-picker">
+              <div className="segmented-control">
+                {([
+                  ["today", "This day"],
+                  ["weekdays", "Weekdays"],
+                  ["weekend", "Weekend"],
+                  ["full-week", "Full week"],
+                  ["custom", "Custom"]
+                ] as Array<[RoutineDayPreset, string]>).map(([preset, label]) => (
+                  <button className={routineDayPreset === preset ? "active" : ""} key={preset} onClick={() => applyRoutinePreset(preset)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="weekday-checks">
+                {weekdays.map((weekday) => (
+                  <label className="choice-pill compact" key={weekday}>
+                    <input type="checkbox" checked={routineTargetDays.includes(weekday)} onChange={() => toggleRoutineTargetDay(weekday)} />
+                    <span>{weekday.slice(0, 3)}</span>
+                  </label>
+                ))}
+              </div>
             </div>
           </section>
           <div className="kanban-board">
@@ -636,6 +714,8 @@ function KitchenPage() {
   const [kidsMealTypes, setKidsMealTypes] = useState<MealType[]>(["BREAKFAST", "LUNCH", "DINNER"]);
   const [effort, setEffort] = useState<MealEffort>("EASY");
   const [includes, setIncludes] = useState<string[]>(["Veggies", "Dal"]);
+  const [customInclude, setCustomInclude] = useState("");
+  const [candidateTargetDays, setCandidateTargetDays] = useState<Record<string, number>>({});
   const [pickedMeals, setPickedMeals] = useState<PickedMeal[]>([]);
 
   useEffect(() => {
@@ -727,10 +807,22 @@ function KitchenPage() {
     setIncludes((current) => (current.includes(item) ? current.filter((value) => value !== item) : [...current, item]));
   }
 
+  function addCustomInclude() {
+    const value = customInclude.trim();
+    if (!value) return;
+    setIncludes((current) => (current.some((item) => item.toLowerCase() === value.toLowerCase()) ? current : [...current, value]));
+    setCustomInclude("");
+  }
+
+  function candidateKey(audience: KitchenAudience, recipe: Recipe, index: number) {
+    return `${audience}-${index}-${recipe.title}`;
+  }
+
   function pickRecipe(recipe: Recipe, audience: KitchenAudience, index: number, mealType?: MealType) {
     const activeTypes = audience === "kids" ? kidsMealTypes : selectedMealTypes;
     const safeTypes = activeTypes.length ? activeTypes : mealTypes;
-    const day = Math.floor(index / safeTypes.length) + 1;
+    const key = candidateKey(audience, recipe, index);
+    const day = candidateTargetDays[key] ?? Math.floor(index / safeTypes.length) + 1;
     const slot = mealType ?? safeTypes[index % safeTypes.length];
     const date = dateForPlanDay(audience === "kids" ? kidsStartDate : planStartDate, Math.min(day, 7));
     const id = `${audience}-${date}-${slot}-${recipe.title}`;
@@ -760,6 +852,8 @@ function KitchenPage() {
       setSavingPlan(false);
     }
   }
+
+  const includeOptions = Array.from(new Set([...mealIncludes, ...includes]));
 
   function planKidsDay() {
     const selectedPlan = library?.kidsPlan.find((day) => day.ageBand === kidsAgeBand && day.day === selectedKidsDay);
@@ -846,12 +940,29 @@ function KitchenPage() {
             <div>
               <span>Include</span>
               <div className="include-grid">
-                {mealIncludes.map((item) => (
+                {includeOptions.map((item) => (
                   <label className="choice-pill compact" key={item}>
                     <input type="checkbox" checked={includes.includes(item)} onChange={() => toggleInclude(item)} />
                     <span>{item}</span>
                   </label>
                 ))}
+              </div>
+              <div className="custom-include-row">
+                <input
+                  value={customInclude}
+                  onChange={(event) => setCustomInclude(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addCustomInclude();
+                    }
+                  }}
+                  placeholder="Add item"
+                  aria-label="Add custom include item"
+                />
+                <button type="button" onClick={addCustomInclude}>
+                  <Plus size={16} /> Add
+                </button>
               </div>
             </div>
           </div>
@@ -886,7 +997,7 @@ function KitchenPage() {
           </section>
           <div className="recipe-slider generated-recipes">
             {familyResult.recipes.map((recipe, index) => (
-              <article className="recipe-card" key={recipe.title}>
+              <article className="recipe-card" key={`${recipe.title}-${index}`}>
                 <span>
                   Day {Math.floor(index / Math.max(selectedMealTypes.length, 1)) + 1} -{" "}
                   {formatMealType(selectedMealTypes[index % Math.max(selectedMealTypes.length, 1)] ?? "LUNCH")}
@@ -902,6 +1013,24 @@ function KitchenPage() {
                 </div>
                 <h3>Missing</h3>
                 <p>{recipe.missingIngredients.length ? recipe.missingIngredients.join(", ") : "Nothing major"}</p>
+                <label className="recipe-day-select">
+                  Add to day
+                  <select
+                    value={candidateTargetDays[candidateKey("family", recipe, index)] ?? Math.min(Math.floor(index / Math.max(selectedMealTypes.length, 1)) + 1, 7)}
+                    onChange={(event) =>
+                      setCandidateTargetDays((current) => ({
+                        ...current,
+                        [candidateKey("family", recipe, index)]: Number(event.target.value)
+                      }))
+                    }
+                  >
+                    {Array.from({ length: 7 }, (_, dayIndex) => (
+                      <option key={dayIndex + 1} value={dayIndex + 1}>
+                        Day {dayIndex + 1} - {formatShortDate(dateForPlanDay(planStartDate, dayIndex + 1))}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   onClick={() => pickRecipe(recipe, "family", index, selectedMealTypes[index % Math.max(selectedMealTypes.length, 1)] ?? "LUNCH")}
                 >
@@ -1017,6 +1146,24 @@ function KitchenPage() {
                     </span>
                     <h2>{recipe.title}</h2>
                     <p>{recipe.prepTimeMinutes} min, age-aware portion</p>
+                    <label className="recipe-day-select">
+                      Add to day
+                      <select
+                        value={candidateTargetDays[candidateKey("kids", recipe, index)] ?? Math.min(Math.floor(index / Math.max(kidsMealTypes.length, 1)) + 1, 7)}
+                        onChange={(event) =>
+                          setCandidateTargetDays((current) => ({
+                            ...current,
+                            [candidateKey("kids", recipe, index)]: Number(event.target.value)
+                          }))
+                        }
+                      >
+                        {Array.from({ length: 7 }, (_, dayIndex) => (
+                          <option key={dayIndex + 1} value={dayIndex + 1}>
+                            Day {dayIndex + 1} - {formatShortDate(dateForPlanDay(kidsStartDate, dayIndex + 1))}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <button onClick={() => pickRecipe(recipe, "kids", index, kidsMealTypes[index % Math.max(kidsMealTypes.length, 1)] ?? "LUNCH")}>
                       Pick
                     </button>
