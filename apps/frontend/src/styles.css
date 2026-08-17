@@ -721,7 +721,7 @@ button:active {
 
 .meal-preferences {
   display: grid;
-  grid-template-columns: minmax(150px, 210px) minmax(150px, 210px) minmax(260px, 1fr);
+  grid-template-columns: repeat(3, minmax(150px, 210px)) minmax(260px, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -788,6 +788,23 @@ button:active {
   font-weight: 900;
 }
 
+.generator-hint,
+.macro-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generator-hint span,
+.macro-row span {
+  padding: 6px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .compact-scan {
   min-height: 100%;
 }
@@ -836,6 +853,42 @@ button:active {
 .ai-status.ready {
   color: var(--color-finance);
   background: var(--color-finance-soft);
+}
+
+.meal-command-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.meal-command-summary article {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.meal-command-summary span,
+.planner-total-pill {
+  color: var(--color-text-soft);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.meal-command-summary strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-primary);
+  font-size: 28px;
+}
+
+.meal-command-summary p {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-weight: 800;
 }
 
 .dropzone strong {
@@ -904,6 +957,238 @@ button:active {
   border-radius: var(--radius-card);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
+}
+
+.weekly-planner-board {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.manual-meal-row {
+  display: grid;
+  grid-template-columns: 130px 145px minmax(180px, 1fr) 96px 96px auto;
+  gap: 8px;
+  align-items: end;
+  margin: 14px 0;
+}
+
+.manual-meal-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-text-soft);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.manual-meal-row input,
+.manual-meal-row select {
+  min-height: 42px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.manual-meal-row button {
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--radius-control);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  background: var(--color-primary);
+  color: var(--color-inverse);
+  font-weight: 900;
+}
+
+.planner-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(180px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.planner-day-card {
+  min-width: 180px;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+}
+
+.planner-day-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.planner-meal {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 10px 34px 10px 10px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.planner-meal.pending {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.planner-meal small,
+.planner-meal span {
+  color: var(--color-text-soft);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.planner-meal button {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.friend-hero {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 16px;
+  padding: 18px;
+  margin-bottom: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.friend-hero h2,
+.friend-hero p {
+  margin: 4px 0 0;
+}
+
+.friend-hero p {
+  color: var(--color-text-muted);
+  font-weight: 800;
+}
+
+.friend-add-form {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(150px, 1.3fr) 90px 150px auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.friend-add-form input,
+.friend-edit-row input {
+  min-height: 42px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.friend-add-form button,
+.friend-suggestion button,
+.friend-edit-row button {
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--radius-control);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  background: var(--color-primary);
+  color: var(--color-inverse);
+  font-weight: 900;
+}
+
+.friend-suggestion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.friend-suggestion {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.friend-suggestion.due {
+  border-color: color-mix(in srgb, var(--color-kids) 60%, var(--color-border));
+  background: color-mix(in srgb, var(--color-kids-soft) 30%, var(--color-surface));
+}
+
+.friend-suggestion span {
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.friend-suggestion h2,
+.friend-suggestion p {
+  margin: 0;
+}
+
+.friend-suggestion p {
+  color: var(--color-text-muted);
+  font-weight: 800;
+}
+
+.friend-edit-list {
+  display: grid;
+  gap: 8px;
+}
+
+.friend-edit-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(160px, 1.2fr) 90px 150px 42px 42px;
+  gap: 8px;
+  align-items: end;
+}
+
+.friend-edit-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-text-soft);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.friend-edit-row .danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .picked-plan .primary-button {
@@ -2273,7 +2558,12 @@ button:active {
   }
 
   .kitchen-studio,
-  .meal-preferences {
+  .meal-preferences,
+  .meal-command-summary,
+  .manual-meal-row,
+  .friend-hero,
+  .friend-add-form,
+  .friend-edit-row {
     grid-template-columns: 1fr;
   }
 

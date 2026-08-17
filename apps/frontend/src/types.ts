@@ -92,10 +92,14 @@ export type Recipe = {
   ingredientsUsed: string[];
   missingIngredients: string[];
   stepByStepInstructions: string[];
+  calories?: number;
+  proteinGrams?: number;
+  cuisine?: string;
 };
 
 export type MealType = "BREAKFAST" | "SNACK" | "LUNCH" | "DINNER";
-export type MealEffort = "EASY" | "MEDIUM" | "WEEKEND";
+export type MealEffort = "EASY" | "MEDIUM" | "HARD" | "WEEKEND";
+export type MealCuisine = "ANY" | "INDIAN" | "ASIAN" | "EUROPEAN" | "MEDITERRANEAN" | "KIDS";
 
 export type RegionalMealPlanDay = {
   day: number;
@@ -140,6 +144,48 @@ export type MealGenerationInput = {
   mealTypes: MealType[];
   effort: MealEffort;
   includes: string[];
+  cuisine: MealCuisine;
+};
+
+export type MealPlanEntry = {
+  id: string;
+  familyId: string;
+  date: string;
+  mealType: MealType;
+  audience: "family" | "kids";
+  recipeTitle: string;
+  instructions: string[];
+  calories: number;
+  proteinGrams: number;
+  cuisine: string;
+  source: string;
+  notes?: string;
+};
+
+export type Friend = {
+  id: string;
+  familyId: string;
+  name: string;
+  notes?: string;
+  lastMetAt?: string;
+  preferredGapWeeks: number;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type FriendSuggestion = {
+  friend: Friend;
+  weeksSinceMet: number | null;
+  due: boolean;
+  suggestedDate: string;
+  message: string;
+};
+
+export type FriendCircleDashboard = {
+  friends: Friend[];
+  suggestions: FriendSuggestion[];
 };
 
 export type AiStatus = {

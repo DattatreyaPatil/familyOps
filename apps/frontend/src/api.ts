@@ -3,8 +3,11 @@ import type {
   BootstrapData,
   ExpenseCategory,
   FinanceDashboard,
+  Friend,
+  FriendCircleDashboard,
   KitchenLibrary,
   KitchenResult,
+  MealPlanEntry,
   MealGenerationInput,
   Profile,
   ReceiptAnalysis,
@@ -114,11 +117,35 @@ export const api = {
   kitchenLibrary: () => request<KitchenLibrary>("/api/kitchen/library"),
   generateMeals: (input: MealGenerationInput) =>
     request<KitchenResult>("/api/kitchen/generate-meals", { method: "POST", body: JSON.stringify(input) }),
-  selectRecipe: (recipe: Recipe, date = new Date().toISOString()) =>
-    request("/api/kitchen/select-recipe", {
+  mealPlan: (startDate?: string) => request<MealPlanEntry[]>(`/api/kitchen/meal-plan${startDate ? `?startDate=${startDate}` : ""}`),
+  selectRecipe: (
+    recipe: Recipe,
+    date = new Date().toISOString(),
+    details?: { mealType?: string; audience?: string; source?: string; notes?: string }
+  ) =>
+    request<MealPlanEntry>("/api/kitchen/select-recipe", {
       method: "POST",
-      body: JSON.stringify({ recipe, date })
+      body: JSON.stringify({ recipe, date, ...details })
     }),
+  upsertManualMeal: (input: {
+    date: string;
+    mealType: string;
+    audience: string;
+    recipeTitle: string;
+    calories?: number;
+    proteinGrams?: number;
+    cuisine?: string;
+    notes?: string;
+  }) => request<MealPlanEntry>("/api/kitchen/manual-meal", { method: "POST", body: JSON.stringify(input) }),
+  deleteMealPlan: (mealPlanId: string) => request(`/api/kitchen/meal-plan/${mealPlanId}`, { method: "DELETE" }),
+  friends: () => request<FriendCircleDashboard>("/api/friends"),
+  createFriend: (input: { name: string; notes?: string; preferredGapWeeks?: number; lastMetAt?: string }) =>
+    request<Friend>("/api/friends", { method: "POST", body: JSON.stringify(input) }),
+  updateFriend: (friendId: string, input: { name?: string; notes?: string; preferredGapWeeks?: number; lastMetAt?: string; sortOrder?: number }) =>
+    request<Friend>(`/api/friends/${friendId}`, { method: "PATCH", body: JSON.stringify(input) }),
+  markFriendMet: (friendId: string, metAt?: string) =>
+    request<Friend>(`/api/friends/${friendId}/met`, { method: "POST", body: JSON.stringify({ metAt }) }),
+  deleteFriend: (friendId: string) => request(`/api/friends/${friendId}`, { method: "DELETE" }),
   kids: () => request<Profile[]>("/api/kids"),
   rewardDashboard: () => request<RewardDashboard>("/api/kids/rewards"),
   createReward: (input: { title: string; starsRequired: number; category: RewardCategory; iconKey: RewardIconKey }) =>

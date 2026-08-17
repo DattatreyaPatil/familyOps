@@ -1,5 +1,6 @@
 import {
   Baby,
+  CalendarDays,
   Camera,
   Check,
   CheckSquare,
@@ -24,6 +25,7 @@ import {
   Trash2,
   Upload,
   UserPlus,
+  Users,
   Utensils,
   Waves
 } from "lucide-react";
@@ -34,10 +36,13 @@ import type {
   ChildRewardTarget,
   ExpenseCategory,
   FinanceDashboard,
+  FriendCircleDashboard,
   KidsAgeBand,
   KitchenLibrary,
   KitchenResult,
+  MealCuisine,
   MealEffort,
+  MealPlanEntry,
   MealType,
   Profile,
   Recipe,
@@ -51,7 +56,7 @@ import type {
   Weekday
 } from "./types";
 
-type Tab = "routines" | "tasks" | "kitchen" | "finances" | "kids" | "admin";
+type Tab = "routines" | "tasks" | "kitchen" | "friends" | "finances" | "kids" | "admin";
 type ThemeMode = "light" | "dark";
 type RoutineDayPreset = "today" | "weekdays" | "weekend" | "full-week" | "custom";
 type KitchenAudience = "family" | "kids";
@@ -63,11 +68,22 @@ type PickedMeal = {
   mealType: MealType;
   recipe: Recipe;
 };
+type ManualMealDraft = {
+  day: number;
+  mealType: MealType;
+  audience: KitchenAudience;
+  recipeTitle: string;
+  calories: number;
+  proteinGrams: number;
+  cuisine: string;
+  notes: string;
+};
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof CheckSquare }> = [
   { id: "routines", label: "Routines", icon: CheckSquare },
   { id: "tasks", label: "Tasks", icon: ListTodo },
   { id: "kitchen", label: "Kitchen", icon: ChefHat },
+  { id: "friends", label: "Friends", icon: Users },
   { id: "finances", label: "Finances", icon: PieChart },
   { id: "kids", label: "Kids", icon: Sparkles },
   { id: "admin", label: "Admin", icon: Settings }
@@ -75,7 +91,15 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof CheckSquare }> = [
 
 const rewardCategories: RewardCategory[] = ["TREAT", "OUTING", "TOY", "SPORT", "ACTIVITY", "CUSTOM"];
 const mealTypes: MealType[] = ["BREAKFAST", "SNACK", "LUNCH", "DINNER"];
-const mealIncludes = ["Eggs", "Chicken", "Veggies", "Dal", "Rice", "Millets", "Curd"];
+const mealIncludes = ["Rice", "Oats", "Chicken", "Fish", "Eggs", "Paneer", "Tofu", "Chickpeas", "Veggies", "Dal", "Millets", "Curd"];
+const mealCuisines: Array<{ value: MealCuisine; label: string }> = [
+  { value: "ANY", label: "Surprise me" },
+  { value: "INDIAN", label: "Indian" },
+  { value: "ASIAN", label: "Asian" },
+  { value: "EUROPEAN", label: "European" },
+  { value: "MEDITERRANEAN", label: "Mediterranean" },
+  { value: "KIDS", label: "Kids first" }
+];
 const rewardIcons: Array<{ key: RewardIconKey; label: string }> = [
   { key: "ICE_CREAM", label: "Ice cream" },
   { key: "PARK", label: "Park" },
@@ -160,6 +184,7 @@ export function App() {
           {tab === "routines" && <RoutinesPage />}
           {tab === "tasks" && <TasksPage />}
           {tab === "kitchen" && <KitchenPage />}
+          {tab === "friends" && <FriendsPage />}
           {tab === "finances" && <FinancePage />}
           {tab === "kids" && <KidsPage />}
           {tab === "admin" && <AdminPage goTo={setTab} />}
@@ -713,39 +738,58 @@ function KitchenPage() {
   const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>(["LUNCH", "DINNER"]);
   const [kidsMealTypes, setKidsMealTypes] = useState<MealType[]>(["BREAKFAST", "LUNCH", "DINNER"]);
   const [effort, setEffort] = useState<MealEffort>("EASY");
-  const [includes, setIncludes] = useState<string[]>(["Veggies", "Dal"]);
+  const [cuisine, setCuisine] = useState<MealCuisine>("ANY");
+  const [includes, setIncludes] = useState<string[]>([]);
   const [customInclude, setCustomInclude] = useState("");
   const [candidateTargetDays, setCandidateTargetDays] = useState<Record<string, number>>({});
   const [pickedMeals, setPickedMeals] = useState<PickedMeal[]>([]);
+  const [savedMeals, setSavedMeals] = useState<MealPlanEntry[]>([]);
+  const [manualMeal, setManualMeal] = useState({
+    day: 1,
+    mealType: "DINNER" as MealType,
+    audience: "family" as KitchenAudience,
+    recipeTitle: "",
+    calories: 350,
+    proteinGrams: 12,
+    cuisine: "Manual",
+    notes: ""
+  });
 
   useEffect(() => {
     Promise.all([api.kitchenLibrary(), api.aiStatus()])
       .then(([mealLibrary, status]) => {
         setLibrary(mealLibrary);
         setAiStatus(status);
-        const initialFamilyRecipes = mealLibrary.regionalPlan.slice(0, 14).map((meal) => meal.recipe);
-        setFamilyResult({
-          source: "Regional rotation",
-          ingredients: ["rice", "dal", "vegetables", "curd"],
-          recipes: initialFamilyRecipes,
-          confidence: 1,
-          provider: "DEMO"
-        });
       })
       .catch((loadError) => setNotice(loadError instanceof Error ? loadError.message : "Kitchen data could not be loaded."));
   }, []);
+
+  useEffect(() => {
+    loadMealPlan();
+  }, [planStartDate]);
+
+  async function loadMealPlan() {
+    try {
+      setSavedMeals(await api.mealPlan(planStartDate));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Saved meal plan could not be loaded.");
+    }
+  }
 
   async function analyze(file?: File) {
     setBusy(true);
     try {
       const analysis = await api.analyzeKitchen(file);
       const scannedIngredients = analysis.ingredients.join(", ");
+      const scanIncludes = includes.length ? includes : inferIncludeGroups(scannedIngredients);
+      setIncludes(scanIncludes);
       setIngredientText(scannedIngredients);
       const generated = await api.generateMeals({
         ingredients: scannedIngredients,
         mealTypes: selectedMealTypes,
         effort,
-        includes
+        includes: scanIncludes,
+        cuisine
       });
       setFamilyResult({
         ...generated,
@@ -766,13 +810,18 @@ function KitchenPage() {
   }
 
   async function generateFamilyMeals() {
+    if (!includes.length) {
+      setNotice("Choose at least one ingredient group before generating recipes.");
+      return;
+    }
     setBusy(true);
     try {
       const generated = await api.generateMeals({
         ingredients: ingredientText,
         mealTypes: selectedMealTypes,
         effort,
-        includes
+        includes,
+        cuisine
       });
       setFamilyResult(generated);
       setNotice(`Generated ${generated.recipes.length} family dish candidates. Pick any meals you want to keep.`);
@@ -844,14 +893,57 @@ function KitchenPage() {
     }
     setSavingPlan(true);
     try {
-      await Promise.all(pickedMeals.map((meal) => api.selectRecipe(meal.recipe, `${meal.date}T12:00:00.000Z`)));
+      await Promise.all(
+        pickedMeals.map((meal) =>
+          api.selectRecipe(meal.recipe, `${meal.date}T12:00:00.000Z`, {
+            mealType: meal.mealType,
+            audience: meal.audience,
+            source: "picked"
+          })
+        )
+      );
       setNotice(`${pickedMeals.length} picked meals saved to Supabase meal plan.`);
+      setPickedMeals([]);
+      await loadMealPlan();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not save the picked meal plan.");
     } finally {
       setSavingPlan(false);
     }
   }
+
+  async function addManualMeal() {
+    if (!manualMeal.recipeTitle.trim()) {
+      setNotice("Enter a recipe name before adding a manual meal.");
+      return;
+    }
+    try {
+      await api.upsertManualMeal({
+        date: `${dateForPlanDay(planStartDate, manualMeal.day)}T12:00:00.000Z`,
+        mealType: manualMeal.mealType,
+        audience: manualMeal.audience,
+        recipeTitle: manualMeal.recipeTitle,
+        calories: manualMeal.calories,
+        proteinGrams: manualMeal.proteinGrams,
+        cuisine: manualMeal.cuisine,
+        notes: manualMeal.notes
+      });
+      setManualMeal((current) => ({ ...current, recipeTitle: "", notes: "" }));
+      await loadMealPlan();
+      setNotice("Manual meal added to the week plan.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Manual meal could not be added.");
+    }
+  }
+
+  async function deleteSavedMeal(mealPlanId: string) {
+    await api.deleteMealPlan(mealPlanId);
+    await loadMealPlan();
+    setNotice("Meal removed from the saved plan.");
+  }
+
+  const weekCalories = savedMeals.reduce((sum, meal) => sum + meal.calories, 0) + pickedMeals.reduce((sum, meal) => sum + (meal.recipe.calories ?? 0), 0);
+  const weekProtein = savedMeals.reduce((sum, meal) => sum + meal.proteinGrams, 0) + pickedMeals.reduce((sum, meal) => sum + (meal.recipe.proteinGrams ?? 0), 0);
 
   const includeOptions = Array.from(new Set([...mealIncludes, ...includes]));
 
@@ -893,7 +985,7 @@ function KitchenPage() {
 
   return (
     <>
-      <PageTitle eyebrow="Meals and nutrition" title="Family kitchen" />
+      <PageTitle eyebrow="Meals, macros and planning" title="Kitchen command center" />
       {notice && <div className="notice">{notice}</div>}
       {aiStatus && (
         <div className={`ai-status ${aiStatus.enabled ? "ready" : ""}`}>
@@ -901,11 +993,33 @@ function KitchenPage() {
           <span>{aiStatus.enabled ? `Gemini ready: ${aiStatus.model}` : "Gemini not configured: using demo scan results"}</span>
         </div>
       )}
+      <section className="meal-command-summary">
+        <article>
+          <span>Saved week</span>
+          <strong>{savedMeals.length}</strong>
+          <p>meals planned</p>
+        </article>
+        <article>
+          <span>Calories</span>
+          <strong>{weekCalories}</strong>
+          <p>estimated kcal</p>
+        </article>
+        <article>
+          <span>Protein</span>
+          <strong>{weekProtein}g</strong>
+          <p>estimated total</p>
+        </article>
+        <article>
+          <span>Picked queue</span>
+          <strong>{pickedMeals.length}</strong>
+          <p>ready to save</p>
+        </article>
+      </section>
       <section className="kitchen-studio">
         <div className="pantry-chat">
           <div>
-            <span className="section-kicker">Pantry chat</span>
-            <h2>What do you have at home?</h2>
+            <span className="section-kicker">Guided generator</span>
+            <h2>Choose effort, ingredients and cuisine</h2>
           </div>
           <textarea
             value={ingredientText}
@@ -934,7 +1048,17 @@ function KitchenPage() {
               <select value={effort} onChange={(event) => setEffort(event.target.value as MealEffort)}>
                 <option value="EASY">Easy weekday</option>
                 <option value="MEDIUM">Medium effort</option>
-                <option value="WEEKEND">Weekend cooking</option>
+                <option value="HARD">Hard / chef mode</option>
+              </select>
+            </label>
+            <label>
+              Cuisine
+              <select value={cuisine} onChange={(event) => setCuisine(event.target.value as MealCuisine)}>
+                {mealCuisines.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
             <div>
@@ -966,22 +1090,35 @@ function KitchenPage() {
               </div>
             </div>
           </div>
+          <div className="generator-hint">
+            <span>{includes.length ? `${includes.length} ingredient group${includes.length === 1 ? "" : "s"} selected` : "Select ingredient groups to unlock generation"}</span>
+            <span>{selectedMealTypes.length} meal slot{selectedMealTypes.length === 1 ? "" : "s"} selected</span>
+          </div>
           <div className="kitchen-command-row">
-            <button className="primary-button" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0}>
-              {busy ? "Generating..." : "Generate from chat"}
+            <button className="primary-button" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0 || includes.length === 0}>
+              {busy ? "Generating..." : "Generate meal options"}
             </button>
-            <button className="secondary-planner-action" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0}>
-              Regenerate chat plan
+            <button className="secondary-planner-action" onClick={generateFamilyMeals} disabled={busy || selectedMealTypes.length === 0 || includes.length === 0}>
+              Regenerate options
             </button>
           </div>
         </div>
         <label className="dropzone compact-scan">
           <Camera size={30} />
-          <strong>{busy ? "Scanning and generating..." : "Fridge scan"}</strong>
-          <span>{aiStatus?.enabled ? "Scan image, then use the same generator." : "Demo scan uses the same generator."}</span>
+          <strong>{busy ? "Scanning and generating..." : "Fridge scan or ingredient note"}</strong>
+          <span>{aiStatus?.enabled ? "Scan image, then the planner generates options." : "Demo scan fills ingredients and generates options."}</span>
           <input type="file" accept="image/*" onChange={(event) => analyze(event.target.files?.[0])} />
         </label>
       </section>
+      <WeeklyMealPlanner
+        startDate={planStartDate}
+        savedMeals={savedMeals}
+        pickedMeals={pickedMeals}
+        manualMeal={manualMeal}
+        onManualChange={setManualMeal}
+        onAddManual={addManualMeal}
+        onDeleteSaved={deleteSavedMeal}
+      />
       <PickedMealPlan meals={pickedMeals} onRemove={removePickedMeal} onSave={savePickedPlan} saving={savingPlan} />
       {familyResult && (
         <>
@@ -1006,6 +1143,11 @@ function KitchenPage() {
                 <p>
                   {recipe.prepTimeMinutes} min, {recipe.isKidFriendly ? "Kid friendly" : "Parent plate"}
                 </p>
+                <div className="macro-row">
+                  <span>{recipe.calories ?? 0} kcal</span>
+                  <span>{recipe.proteinGrams ?? 0}g protein</span>
+                  <span>{recipe.cuisine ?? cuisine}</span>
+                </div>
                 <div className="mini-chip-row">
                   {recipe.ingredientsUsed.slice(0, 5).map((ingredient) => (
                     <span key={ingredient}>{ingredient}</span>
@@ -1146,6 +1288,10 @@ function KitchenPage() {
                     </span>
                     <h2>{recipe.title}</h2>
                     <p>{recipe.prepTimeMinutes} min, age-aware portion</p>
+                    <div className="macro-row">
+                      <span>{recipe.calories ?? 0} kcal</span>
+                      <span>{recipe.proteinGrams ?? 0}g protein</span>
+                    </div>
                     <label className="recipe-day-select">
                       Add to day
                       <select
@@ -1175,6 +1321,109 @@ function KitchenPage() {
         </>
       )}
     </>
+  );
+}
+
+function WeeklyMealPlanner({
+  startDate,
+  savedMeals,
+  pickedMeals,
+  manualMeal,
+  onManualChange,
+  onAddManual,
+  onDeleteSaved
+}: {
+  startDate: string;
+  savedMeals: MealPlanEntry[];
+  pickedMeals: PickedMeal[];
+  manualMeal: ManualMealDraft;
+  onManualChange: (draft: ManualMealDraft) => void;
+  onAddManual: () => void;
+  onDeleteSaved: (mealPlanId: string) => void;
+}) {
+  return (
+    <section className="weekly-planner-board">
+      <div className="planner-header">
+        <div>
+          <span>Weekly planner</span>
+          <h2>Saved meals and manual entries</h2>
+        </div>
+        <div className="planner-total-pill">
+          {savedMeals.reduce((sum, meal) => sum + meal.calories, 0)} kcal saved
+        </div>
+      </div>
+      <div className="manual-meal-row">
+        <label>
+          Day
+          <select value={manualMeal.day} onChange={(event) => onManualChange({ ...manualMeal, day: Number(event.target.value) })}>
+            {Array.from({ length: 7 }, (_, index) => (
+              <option key={index + 1} value={index + 1}>
+                Day {index + 1} - {formatShortDate(dateForPlanDay(startDate, index + 1))}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Meal
+          <select value={manualMeal.mealType} onChange={(event) => onManualChange({ ...manualMeal, mealType: event.target.value as MealType })}>
+            {mealTypes.map((mealType) => (
+              <option key={mealType} value={mealType}>
+                {formatMealType(mealType)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="manual-title">
+          Recipe
+          <input value={manualMeal.recipeTitle} onChange={(event) => onManualChange({ ...manualMeal, recipeTitle: event.target.value })} placeholder="Poha, pasta, dosa..." />
+        </label>
+        <label>
+          kcal
+          <input type="number" min="0" value={manualMeal.calories} onChange={(event) => onManualChange({ ...manualMeal, calories: Number(event.target.value) })} />
+        </label>
+        <label>
+          Protein
+          <input type="number" min="0" value={manualMeal.proteinGrams} onChange={(event) => onManualChange({ ...manualMeal, proteinGrams: Number(event.target.value) })} />
+        </label>
+        <button onClick={onAddManual}>
+          <Plus size={16} /> Add manual
+        </button>
+      </div>
+      <div className="planner-week-grid">
+        {Array.from({ length: 7 }, (_, index) => {
+          const day = index + 1;
+          const date = dateForPlanDay(startDate, day);
+          const saved = savedMeals.filter((meal) => meal.date.slice(0, 10) === date);
+          const pending = pickedMeals.filter((meal) => meal.date === date);
+          return (
+            <article className="planner-day-card" key={day}>
+              <header>
+                <span>Day {day}</span>
+                <strong>{formatShortDate(date)}</strong>
+              </header>
+              {[...saved].map((meal) => (
+                <div className="planner-meal saved" key={meal.id}>
+                  <small>{formatMealType(meal.mealType)} / {meal.audience}</small>
+                  <strong>{meal.recipeTitle}</strong>
+                  <span>{meal.calories} kcal / {meal.proteinGrams}g protein / {meal.cuisine}</span>
+                  <button onClick={() => onDeleteSaved(meal.id)} aria-label={`Remove ${meal.recipeTitle}`}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+              {pending.map((meal) => (
+                <div className="planner-meal pending" key={meal.id}>
+                  <small>{formatMealType(meal.mealType)} / pending</small>
+                  <strong>{meal.recipe.title}</strong>
+                  <span>{meal.recipe.calories ?? 0} kcal / {meal.recipe.proteinGrams ?? 0}g protein</span>
+                </div>
+              ))}
+              {!saved.length && !pending.length && <div className="empty-lane">No meals yet</div>}
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1234,6 +1483,14 @@ function mergePickedMeals(current: PickedMeal[], incoming: PickedMeal[]) {
   return [...current, ...incoming.filter((meal) => !existing.has(meal.id))];
 }
 
+function inferIncludeGroups(text: string) {
+  const lower = text.toLowerCase();
+  const selected = mealIncludes.filter((item) => lower.includes(item.toLowerCase()));
+  if (/tomato|onion|carrot|spinach|beans|peas|capsicum|vegetable/.test(lower)) selected.push("Veggies");
+  if (/lentil|toor|moong|dal/.test(lower)) selected.push("Dal");
+  return Array.from(new Set(selected.length ? selected : ["Rice", "Veggies"]));
+}
+
 function expandToWeek(result: KitchenResult, selectedTypes: MealType[]): KitchenResult {
   const types = selectedTypes.length ? selectedTypes : ["LUNCH"];
   const target = Math.max(7 * types.length, result.recipes.length);
@@ -1250,6 +1507,152 @@ function expandToWeek(result: KitchenResult, selectedTypes: MealType[]): Kitchen
     };
   });
   return { ...result, recipes };
+}
+
+function FriendsPage() {
+  const [dashboard, setDashboard] = useState<FriendCircleDashboard | null>(null);
+  const [friendForm, setFriendForm] = useState({ name: "", notes: "", preferredGapWeeks: 7, lastMetAt: "" });
+  const [message, setMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, { name: string; notes: string; preferredGapWeeks: number; lastMetAt: string }>>({});
+
+  useEffect(() => {
+    loadFriends();
+  }, []);
+
+  async function loadFriends() {
+    try {
+      const data = await api.friends();
+      setDashboard(data);
+      setDrafts(
+        Object.fromEntries(
+          data.friends.map((friend) => [
+            friend.id,
+            {
+              name: friend.name,
+              notes: friend.notes ?? "",
+              preferredGapWeeks: friend.preferredGapWeeks,
+              lastMetAt: friend.lastMetAt?.slice(0, 10) ?? ""
+            }
+          ])
+        )
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Friends could not be loaded.");
+    }
+  }
+
+  async function addFriend() {
+    if (!friendForm.name.trim()) {
+      setMessage("Enter a friend name first.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.createFriend({
+        name: friendForm.name,
+        notes: friendForm.notes || undefined,
+        preferredGapWeeks: friendForm.preferredGapWeeks,
+        lastMetAt: friendForm.lastMetAt ? `${friendForm.lastMetAt}T12:00:00.000Z` : undefined
+      });
+      setFriendForm({ name: "", notes: "", preferredGapWeeks: 7, lastMetAt: "" });
+      await loadFriends();
+      setMessage("Friend added to the loop.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Friend could not be added.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveFriend(friendId: string) {
+    const draft = drafts[friendId];
+    if (!draft?.name.trim()) return;
+    await api.updateFriend(friendId, {
+      name: draft.name,
+      notes: draft.notes,
+      preferredGapWeeks: draft.preferredGapWeeks,
+      lastMetAt: draft.lastMetAt ? `${draft.lastMetAt}T12:00:00.000Z` : ""
+    });
+    await loadFriends();
+    setMessage("Friend updated.");
+  }
+
+  async function markMet(friendId: string) {
+    await api.markFriendMet(friendId);
+    await loadFriends();
+    setMessage("Marked as met today. The loop has moved on.");
+  }
+
+  async function deleteFriend(friendId: string) {
+    await api.deleteFriend(friendId);
+    await loadFriends();
+    setMessage("Friend removed from the active loop.");
+  }
+
+  return (
+    <>
+      <PageTitle eyebrow="Social rhythm" title="Friends circle" />
+      {message && <div className="notice">{message}</div>}
+      <section className="friend-hero">
+        <div>
+          <span className="section-kicker">Next catch-ups</span>
+          <h2>Keep people in the family orbit</h2>
+          <p>FamOps rotates your friends across upcoming weekends and highlights who is due based on the gap you choose.</p>
+        </div>
+        <div className="friend-add-form">
+          <input value={friendForm.name} onChange={(event) => setFriendForm({ ...friendForm, name: event.target.value })} placeholder="Friend name" />
+          <input value={friendForm.notes} onChange={(event) => setFriendForm({ ...friendForm, notes: event.target.value })} placeholder="Notes, city, kids..." />
+          <input type="number" min="1" value={friendForm.preferredGapWeeks} onChange={(event) => setFriendForm({ ...friendForm, preferredGapWeeks: Number(event.target.value) })} />
+          <input type="date" value={friendForm.lastMetAt} onChange={(event) => setFriendForm({ ...friendForm, lastMetAt: event.target.value })} />
+          <button onClick={addFriend} disabled={saving}>
+            <UserPlus size={17} /> Add
+          </button>
+        </div>
+      </section>
+      <section className="friend-suggestion-grid">
+        {(dashboard?.suggestions ?? []).map((suggestion) => (
+          <article className={`friend-suggestion ${suggestion.due ? "due" : ""}`} key={suggestion.friend.id}>
+            <CalendarDays size={20} />
+            <span>{formatShortDate(suggestion.suggestedDate.slice(0, 10))}</span>
+            <h2>{suggestion.friend.name}</h2>
+            <p>{suggestion.message}</p>
+            <button onClick={() => markMet(suggestion.friend.id)}>Met today</button>
+          </article>
+        ))}
+      </section>
+      <section className="friend-list card">
+        <div className="planner-header">
+          <div>
+            <span>Circle</span>
+            <h2>{dashboard?.friends.length ?? 0} active friends</h2>
+          </div>
+        </div>
+        <div className="friend-edit-list">
+          {(dashboard?.friends ?? []).map((friend) => {
+            const draft = drafts[friend.id] ?? { name: friend.name, notes: friend.notes ?? "", preferredGapWeeks: friend.preferredGapWeeks, lastMetAt: friend.lastMetAt?.slice(0, 10) ?? "" };
+            return (
+              <div className="friend-edit-row" key={friend.id}>
+                <input value={draft.name} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, name: event.target.value } }))} />
+                <input value={draft.notes} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, notes: event.target.value } }))} placeholder="Notes" />
+                <label>
+                  Gap
+                  <input type="number" min="1" value={draft.preferredGapWeeks} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, preferredGapWeeks: Number(event.target.value) } }))} />
+                </label>
+                <label>
+                  Last met
+                  <input type="date" value={draft.lastMetAt} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, lastMetAt: event.target.value } }))} />
+                </label>
+                <button onClick={() => saveFriend(friend.id)}><Save size={15} /></button>
+                <button className="danger" onClick={() => deleteFriend(friend.id)}><Trash2 size={15} /></button>
+              </div>
+            );
+          })}
+          {!dashboard?.friends.length && <div className="empty-lane">Add friends to start the weekend loop.</div>}
+        </div>
+      </section>
+    </>
+  );
 }
 
 function KidsPage() {
