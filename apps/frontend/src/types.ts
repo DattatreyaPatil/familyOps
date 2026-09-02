@@ -95,11 +95,26 @@ export type Recipe = {
   calories?: number;
   proteinGrams?: number;
   cuisine?: string;
+  servings?: MealServings;
+  shoppingItems?: ShoppingItem[];
 };
 
 export type MealType = "BREAKFAST" | "SNACK" | "LUNCH" | "DINNER";
 export type MealEffort = "EASY" | "MEDIUM" | "HARD" | "WEEKEND";
 export type MealCuisine = "ANY" | "INDIAN" | "ASIAN" | "EUROPEAN" | "MEDITERRANEAN" | "KIDS";
+export type ShoppingCategory = "VEGETABLE" | "PROTEIN" | "GRAIN" | "DAIRY" | "FRUIT" | "OTHER";
+
+export type MealServings = {
+  adults: number;
+  kids: number;
+};
+
+export type ShoppingItem = {
+  name: string;
+  quantity: number;
+  unit: string;
+  category: ShoppingCategory;
+};
 
 export type RegionalMealPlanDay = {
   day: number;
@@ -145,6 +160,7 @@ export type MealGenerationInput = {
   effort: MealEffort;
   includes: string[];
   cuisine: MealCuisine;
+  servings: MealServings;
 };
 
 export type MealPlanEntry = {
@@ -160,6 +176,9 @@ export type MealPlanEntry = {
   cuisine: string;
   source: string;
   notes?: string;
+  servingsAdults: number;
+  servingsKids: number;
+  shoppingItems: ShoppingItem[];
 };
 
 export type Friend = {

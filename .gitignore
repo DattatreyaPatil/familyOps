@@ -2,8 +2,6 @@ node_modules/
 dist/
 apps/*/dist/
 apps/*/.vite/
-apps/backend/
-supabase/
 deployment/
 DEPLOYMENT.md
 apps/backend/data/

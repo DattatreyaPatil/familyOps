@@ -9,6 +9,7 @@ import type {
   KitchenResult,
   MealPlanEntry,
   MealGenerationInput,
+  MealServings,
   Profile,
   ReceiptAnalysis,
   Recipe,
@@ -121,7 +122,7 @@ export const api = {
   selectRecipe: (
     recipe: Recipe,
     date = new Date().toISOString(),
-    details?: { mealType?: string; audience?: string; source?: string; notes?: string }
+    details?: { mealType?: string; audience?: string; source?: string; notes?: string; servings?: MealServings }
   ) =>
     request<MealPlanEntry>("/api/kitchen/select-recipe", {
       method: "POST",
@@ -136,6 +137,9 @@ export const api = {
     proteinGrams?: number;
     cuisine?: string;
     notes?: string;
+    servingsAdults?: number;
+    servingsKids?: number;
+    shoppingItems?: Recipe["shoppingItems"];
   }) => request<MealPlanEntry>("/api/kitchen/manual-meal", { method: "POST", body: JSON.stringify(input) }),
   deleteMealPlan: (mealPlanId: string) => request(`/api/kitchen/meal-plan/${mealPlanId}`, { method: "DELETE" }),
   friends: () => request<FriendCircleDashboard>("/api/friends"),

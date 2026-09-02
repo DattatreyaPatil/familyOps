@@ -42,6 +42,7 @@ import type {
   KitchenResult,
   MealCuisine,
   MealEffort,
+  MealServings,
   MealPlanEntry,
   MealType,
   Profile,
@@ -51,6 +52,7 @@ import type {
   RewardDefinition,
   RewardIconKey,
   RoutineView,
+  ShoppingItem,
   TaskStatus,
   TaskView,
   Weekday
@@ -77,6 +79,7 @@ type ManualMealDraft = {
   proteinGrams: number;
   cuisine: string;
   notes: string;
+  shoppingText: string;
 };
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof CheckSquare }> = [
@@ -752,8 +755,10 @@ function KitchenPage() {
     calories: 350,
     proteinGrams: 12,
     cuisine: "Manual",
-    notes: ""
+    notes: "",
+    shoppingText: ""
   });
+  const [servings, setServings] = useState<MealServings>({ adults: 2, kids: 2 });
 
   useEffect(() => {
     Promise.all([api.kitchenLibrary(), api.aiStatus()])
@@ -789,7 +794,8 @@ function KitchenPage() {
         mealTypes: selectedMealTypes,
         effort,
         includes: scanIncludes,
-        cuisine
+        cuisine,
+        servings
       });
       setFamilyResult({
         ...generated,
@@ -821,7 +827,8 @@ function KitchenPage() {
         mealTypes: selectedMealTypes,
         effort,
         includes,
-        cuisine
+        cuisine,
+        servings
       });
       setFamilyResult(generated);
       setNotice(`Generated ${generated.recipes.length} family dish candidates. Pick any meals you want to keep.`);
@@ -898,7 +905,8 @@ function KitchenPage() {
           api.selectRecipe(meal.recipe, `${meal.date}T12:00:00.000Z`, {
             mealType: meal.mealType,
             audience: meal.audience,
-            source: "picked"
+            source: "picked",
+            servings: meal.recipe.servings ?? servings
           })
         )
       );
@@ -926,9 +934,12 @@ function KitchenPage() {
         calories: manualMeal.calories,
         proteinGrams: manualMeal.proteinGrams,
         cuisine: manualMeal.cuisine,
-        notes: manualMeal.notes
+        notes: manualMeal.notes,
+        servingsAdults: servings.adults,
+        servingsKids: servings.kids,
+        shoppingItems: parseManualShoppingItems(manualMeal.shoppingText)
       });
-      setManualMeal((current) => ({ ...current, recipeTitle: "", notes: "" }));
+      setManualMeal((current) => ({ ...current, recipeTitle: "", notes: "", shoppingText: "" }));
       await loadMealPlan();
       setNotice("Manual meal added to the week plan.");
     } catch (error) {
@@ -944,6 +955,10 @@ function KitchenPage() {
 
   const weekCalories = savedMeals.reduce((sum, meal) => sum + meal.calories, 0) + pickedMeals.reduce((sum, meal) => sum + (meal.recipe.calories ?? 0), 0);
   const weekProtein = savedMeals.reduce((sum, meal) => sum + meal.proteinGrams, 0) + pickedMeals.reduce((sum, meal) => sum + (meal.recipe.proteinGrams ?? 0), 0);
+  const weeklyShoppingItems = aggregateShoppingItems([
+    ...savedMeals.flatMap((meal) => meal.shoppingItems ?? []),
+    ...pickedMeals.flatMap((meal) => meal.recipe.shoppingItems ?? [])
+  ]);
 
   const includeOptions = Array.from(new Set([...mealIncludes, ...includes]));
 
@@ -1010,9 +1025,14 @@ function KitchenPage() {
           <p>estimated total</p>
         </article>
         <article>
-          <span>Picked queue</span>
-          <strong>{pickedMeals.length}</strong>
-          <p>ready to save</p>
+          <span>Cooking for</span>
+          <strong>{servings.adults + servings.kids}</strong>
+          <p>{servings.adults} adults / {servings.kids} kids</p>
+        </article>
+        <article>
+          <span>Shopping</span>
+          <strong>{weeklyShoppingItems.length}</strong>
+          <p>weekly buy items</p>
         </article>
       </section>
       <section className="kitchen-studio">
@@ -1061,6 +1081,31 @@ function KitchenPage() {
                 ))}
               </select>
             </label>
+            <div className="serving-control">
+              <span>Cooking for</span>
+              <div className="serving-grid">
+                <label>
+                  Adults
+                  <input
+                    type="number"
+                    min="1"
+                    max="8"
+                    value={servings.adults}
+                    onChange={(event) => setServings((current) => ({ ...current, adults: clampNumber(Number(event.target.value), 1, 8) }))}
+                  />
+                </label>
+                <label>
+                  Kids
+                  <input
+                    type="number"
+                    min="0"
+                    max="8"
+                    value={servings.kids}
+                    onChange={(event) => setServings((current) => ({ ...current, kids: clampNumber(Number(event.target.value), 0, 8) }))}
+                  />
+                </label>
+              </div>
+            </div>
             <div>
               <span>Include</span>
               <div className="include-grid">
@@ -1119,6 +1164,7 @@ function KitchenPage() {
         onAddManual={addManualMeal}
         onDeleteSaved={deleteSavedMeal}
       />
+      <WeeklyShoppingList items={weeklyShoppingItems} />
       <PickedMealPlan meals={pickedMeals} onRemove={removePickedMeal} onSave={savePickedPlan} saving={savingPlan} />
       {familyResult && (
         <>
@@ -1153,6 +1199,7 @@ function KitchenPage() {
                     <span key={ingredient}>{ingredient}</span>
                   ))}
                 </div>
+                <RecipeShoppingPreview items={recipe.shoppingItems ?? []} />
                 <h3>Missing</h3>
                 <p>{recipe.missingIngredients.length ? recipe.missingIngredients.join(", ") : "Nothing major"}</p>
                 <label className="recipe-day-select">
@@ -1292,6 +1339,7 @@ function KitchenPage() {
                       <span>{recipe.calories ?? 0} kcal</span>
                       <span>{recipe.proteinGrams ?? 0}g protein</span>
                     </div>
+                    <RecipeShoppingPreview items={recipe.shoppingItems ?? []} />
                     <label className="recipe-day-select">
                       Add to day
                       <select
@@ -1385,6 +1433,14 @@ function WeeklyMealPlanner({
           Protein
           <input type="number" min="0" value={manualMeal.proteinGrams} onChange={(event) => onManualChange({ ...manualMeal, proteinGrams: Number(event.target.value) })} />
         </label>
+        <label className="manual-shopping">
+          Shop items
+          <input
+            value={manualMeal.shoppingText}
+            onChange={(event) => onManualChange({ ...manualMeal, shoppingText: event.target.value })}
+            placeholder="tomato 3 pcs, eggs 6 pcs"
+          />
+        </label>
         <button onClick={onAddManual}>
           <Plus size={16} /> Add manual
         </button>
@@ -1405,7 +1461,10 @@ function WeeklyMealPlanner({
                 <div className="planner-meal saved" key={meal.id}>
                   <small>{formatMealType(meal.mealType)} / {meal.audience}</small>
                   <strong>{meal.recipeTitle}</strong>
-                  <span>{meal.calories} kcal / {meal.proteinGrams}g protein / {meal.cuisine}</span>
+                  <span>
+                    {meal.calories} kcal / {meal.proteinGrams}g protein / {meal.cuisine}
+                    {meal.shoppingItems?.length ? ` / ${meal.shoppingItems.length} shop items` : ""}
+                  </span>
                   <button onClick={() => onDeleteSaved(meal.id)} aria-label={`Remove ${meal.recipeTitle}`}>
                     <Trash2 size={14} />
                   </button>
@@ -1415,7 +1474,10 @@ function WeeklyMealPlanner({
                 <div className="planner-meal pending" key={meal.id}>
                   <small>{formatMealType(meal.mealType)} / pending</small>
                   <strong>{meal.recipe.title}</strong>
-                  <span>{meal.recipe.calories ?? 0} kcal / {meal.recipe.proteinGrams ?? 0}g protein</span>
+                  <span>
+                    {meal.recipe.calories ?? 0} kcal / {meal.recipe.proteinGrams ?? 0}g protein
+                    {meal.recipe.shoppingItems?.length ? ` / ${meal.recipe.shoppingItems.length} shop items` : ""}
+                  </span>
                 </div>
               ))}
               {!saved.length && !pending.length && <div className="empty-lane">No meals yet</div>}
@@ -1424,6 +1486,58 @@ function WeeklyMealPlanner({
         })}
       </div>
     </section>
+  );
+}
+
+function WeeklyShoppingList({ items }: { items: ShoppingItem[] }) {
+  const byCategory = groupShoppingItems(items);
+  return (
+    <section className="shopping-panel">
+      <div className="planner-header">
+        <div>
+          <span>Weekly shopping</span>
+          <h2>Ingredients to buy for planned meals</h2>
+        </div>
+        <div className="planner-total-pill">{items.length} core items</div>
+      </div>
+      {items.length ? (
+        <div className="shopping-category-grid">
+          {Object.entries(byCategory).map(([category, categoryItems]) => (
+            <article className="shopping-category" key={category}>
+              <h3>{titleCase(category)}</h3>
+              <div className="shopping-list">
+                {categoryItems.map((item) => (
+                  <div className="shopping-item" key={`${item.category}-${item.name}-${item.unit}`}>
+                    <strong>{item.name}</strong>
+                    <span>
+                      {formatQuantity(item.quantity)} {item.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-lane">Pick or save meals to build the weekly grocery list.</div>
+      )}
+    </section>
+  );
+}
+
+function RecipeShoppingPreview({ items }: { items: ShoppingItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="recipe-shopping-list" aria-label="Recipe shopping items">
+      <span>Buy</span>
+      <div>
+        {items.slice(0, 5).map((item) => (
+          <small key={`${item.name}-${item.unit}`}>
+            {item.name}: {formatQuantity(item.quantity)} {item.unit}
+          </small>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1481,6 +1595,82 @@ function PickedMealPlan({
 function mergePickedMeals(current: PickedMeal[], incoming: PickedMeal[]) {
   const existing = new Set(current.map((meal) => meal.id));
   return [...current, ...incoming.filter((meal) => !existing.has(meal.id))];
+}
+
+function parseManualShoppingItems(text: string): ShoppingItem[] {
+  return text
+    .split(/[,;\n]/)
+    .map((raw) => raw.trim())
+    .filter(Boolean)
+    .map((raw) => {
+      const match = raw.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*([a-zA-Z]+|pcs|bunch)?$/);
+      const name = titleCase((match?.[1] ?? raw).trim());
+      const quantity = match ? Number(match[2]) : 1;
+      const unit = match?.[3] ?? "pcs";
+      return {
+        name,
+        quantity,
+        unit,
+        category: classifyShoppingItem(name)
+      };
+    })
+    .filter((item) => !isMasalaLike(item.name));
+}
+
+function aggregateShoppingItems(items: ShoppingItem[]) {
+  const merged = new Map<string, ShoppingItem>();
+  for (const item of items) {
+    if (!item?.name || isMasalaLike(item.name)) continue;
+    const key = `${item.name.toLowerCase()}-${item.unit.toLowerCase()}-${item.category}`;
+    const existing = merged.get(key);
+    if (existing) {
+      merged.set(key, { ...existing, quantity: roundQuantity(existing.quantity + Number(item.quantity || 0)) });
+    } else {
+      merged.set(key, { ...item, name: titleCase(item.name), quantity: roundQuantity(Number(item.quantity || 1)) });
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+}
+
+function groupShoppingItems(items: ShoppingItem[]) {
+  return items.reduce<Record<string, ShoppingItem[]>>((groups, item) => {
+    groups[item.category] = [...(groups[item.category] ?? []), item];
+    return groups;
+  }, {});
+}
+
+function classifyShoppingItem(name: string): ShoppingItem["category"] {
+  const lower = name.toLowerCase();
+  if (/chicken|fish|egg|paneer|tofu|dal|lentil|chickpea|rajma|bean/.test(lower)) return "PROTEIN";
+  if (/rice|oat|ragi|jowar|millet|pasta|noodle|poha|suji|rava|wheat|rotti|dosa/.test(lower)) return "GRAIN";
+  if (/curd|yogurt|milk|cheese/.test(lower)) return "DAIRY";
+  if (/banana|apple|pear|mango|papaya|watermelon|avocado|fruit/.test(lower)) return "FRUIT";
+  if (/tomato|onion|carrot|spinach|cucumber|beans|peas|capsicum|pumpkin|potato|coriander|parsley|vegetable|veggie|gourd|beetroot|corn|palak/.test(lower)) return "VEGETABLE";
+  return "OTHER";
+}
+
+function isMasalaLike(name: string) {
+  return /masala|chilli|chili|turmeric|cumin|mustard|pepper|asafoetida|hing|garam|sambar powder|rasam powder/i.test(name);
+}
+
+function roundQuantity(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function formatQuantity(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (Number.isNaN(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function titleCase(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function inferIncludeGroups(text: string) {
