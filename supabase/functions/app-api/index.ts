@@ -1,5 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { handleCors, jsonResponse } from "../_shared/cors.ts";
+import {
+  analyzeYouTubeVideo,
+  generateGeminiEmbedding,
+  generateGeminiTextJson
+} from "../_shared/gemini.ts";
 
 type Weekday = "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY" | "SUNDAY";
 type TaskStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "DONE";
@@ -48,6 +53,25 @@ Deno.serve(async (request) => {
 
     const context = await getContext(request);
     if (method === "GET" && path === "/api/bootstrap") return jsonResponse(await bootstrap(context.familyId));
+    if (method === "GET" && path === "/api/home") return jsonResponse(await homeDashboard(context.familyId));
+    if (method === "PUT" && path === "/api/home/location") {
+      return jsonResponse(await saveWeatherLocation(context.familyId, await request.json()));
+    }
+    if (method === "PATCH" && path.match(/^\/api\/profiles\/[^/]+\/warmth$/)) {
+      return jsonResponse(await updateProfileWarmth(context.familyId, path.split("/")[3], await request.json()));
+    }
+    if (method === "POST" && path === "/api/assistant/chat") {
+      return jsonResponse(await assistantChat(context.familyId, await request.json()));
+    }
+    if (method === "GET" && path === "/api/videos") {
+      return jsonResponse(await listVideos(context.familyId, url.searchParams.get("query") ?? ""));
+    }
+    if (method === "POST" && path === "/api/videos/analyze") {
+      return jsonResponse(await analyzeVideo(context.familyId, context.user.id, await request.json()), 201);
+    }
+    if (method === "DELETE" && path.match(/^\/api\/videos\/[^/]+$/)) {
+      return jsonResponse(await deleteVideo(context.familyId, path.split("/").at(-1)!));
+    }
     if (method === "GET" && path === "/api/ai/status") return jsonResponse(aiStatus());
     if (method === "GET" && path === "/api/routines/today") {
       return jsonResponse(await routineDay(context.familyId, url.searchParams.get("weekday") as Weekday | null));
@@ -79,8 +103,11 @@ Deno.serve(async (request) => {
     }
 
     if (method === "GET" && path === "/api/kitchen/library") return jsonResponse(kitchenLibrary());
-    if (method === "POST" && path === "/api/kitchen/generate-meals") return jsonResponse(generateMeals(await request.json()));
+    if (method === "POST" && path === "/api/kitchen/generate-meals") return jsonResponse(await generateMeals(await request.json()));
     if (method === "GET" && path === "/api/kitchen/meal-plan") return jsonResponse(await listMealPlan(context.familyId, url.searchParams.get("startDate")));
+    if (method === "GET" && path === "/api/kitchen/shopping-list") return jsonResponse(await getWeeklyShoppingList(context.familyId, url.searchParams.get("startDate")));
+    if (method === "POST" && path === "/api/kitchen/shopping-list/generate") return jsonResponse(await generateWeeklyShoppingList(context.familyId, await request.json()));
+    if (method === "PUT" && path === "/api/kitchen/shopping-list") return jsonResponse(await saveWeeklyShoppingList(context.familyId, await request.json()));
     if (method === "POST" && path === "/api/kitchen/select-recipe") return jsonResponse(await selectRecipe(context.familyId, await request.json()), 201);
     if (method === "POST" && path === "/api/kitchen/manual-meal") return jsonResponse(await addManualMeal(context.familyId, await request.json()), 201);
     if (method === "DELETE" && path.startsWith("/api/kitchen/meal-plan/")) return jsonResponse(await deleteMealPlan(context.familyId, path.split("/").at(-1)!));
@@ -89,7 +116,19 @@ Deno.serve(async (request) => {
     }
 
     if (method === "GET" && path === "/api/friends") return jsonResponse(await friendCircle(context.familyId));
+    if (method === "POST" && path === "/api/friends/assistant") return jsonResponse(await friendAssistant(context.familyId, await request.json()));
     if (method === "POST" && path === "/api/friends") return jsonResponse(await createFriend(context.familyId, await request.json()), 201);
+    if (method === "POST" && path.match(/^\/api\/friends\/[^/]+\/visits$/)) {
+      return jsonResponse(await recordFriendVisit(context.familyId, path.split("/")[3], await request.json()), 201);
+    }
+    if (method === "PATCH" && path.match(/^\/api\/friends\/[^/]+\/visits\/[^/]+$/)) {
+      const parts = path.split("/");
+      return jsonResponse(await updateFriendVisit(context.familyId, parts[3], parts[5], await request.json()));
+    }
+    if (method === "DELETE" && path.match(/^\/api\/friends\/[^/]+\/visits\/[^/]+$/)) {
+      const parts = path.split("/");
+      return jsonResponse(await deleteFriendVisit(context.familyId, parts[3], parts[5]));
+    }
     if (method === "PATCH" && path.match(/^\/api\/friends\/[^/]+$/)) return jsonResponse(await updateFriend(context.familyId, path.split("/").at(-1)!, await request.json()));
     if (method === "POST" && path.match(/^\/api\/friends\/[^/]+\/met$/)) {
       return jsonResponse(await markFriendMet(context.familyId, path.split("/")[3], (await request.json()).metAt));
@@ -137,7 +176,7 @@ Deno.serve(async (request) => {
     if (method === "PUT" && path.startsWith("/api/finance/budgets/")) {
       const category = path.split("/").at(-1)! as ExpenseCategory;
       const body = await request.json();
-      return jsonResponse(await saveBudget(context.familyId, body.month, category, Number(body.amount)));
+      return jsonResponse(await saveRecurringBudget(context.familyId, category, Number(body.amount)));
     }
     if (method === "POST" && path === "/api/finance/receipt") return jsonResponse(await addReceiptJson(context.familyId, await request.json()), 201);
     if (method === "POST" && path === "/api/finance/receipt-image") return jsonResponse(await addReceiptForm(context.familyId, context.user.id, request), 201);
@@ -239,6 +278,399 @@ async function bootstrap(familyId: string) {
     profiles: profiles.map(fromProfile),
     groceries: groceries.map(fromGrocery)
   };
+}
+
+async function homeDashboard(familyId: string) {
+  const [setting, profiles] = await Promise.all([
+    weatherSetting(familyId),
+    select("profiles", "*", { family_id: familyId })
+  ]);
+  const hasLocation = setting.latitude !== null && setting.longitude !== null && Number.isFinite(Number(setting.latitude)) && Number.isFinite(Number(setting.longitude));
+  if (!hasLocation) return { weather: null, outfits: [] };
+  const weather = await fetchWeather(setting);
+  return {
+    weather,
+    outfits: profiles.map((profile) => outfitForProfile(fromProfile(profile), weather))
+  };
+}
+
+async function weatherSetting(familyId: string) {
+  const existing = await maybeSingle("family_weather_settings", "*", { family_id: familyId });
+  if (existing) return existing;
+  return insertSingle("family_weather_settings", {
+    family_id: familyId,
+    location_name: null,
+    latitude: null,
+    longitude: null,
+    timezone: "UTC"
+  });
+}
+
+async function saveWeatherLocation(familyId: string, body: { city?: string }) {
+  const city = String(body.city ?? "").trim();
+  if (city.length < 2) throw Object.assign(new Error("Enter a city or postcode."), { status: 400 });
+  const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`);
+  if (!response.ok) throw Object.assign(new Error("Location search is temporarily unavailable."), { status: 503 });
+  const result = (await response.json()).results?.[0];
+  if (!result) throw Object.assign(new Error(`No location found for ${city}.`), { status: 404 });
+  const row = {
+    family_id: familyId,
+    location_name: [result.name, result.admin1, result.country].filter(Boolean).join(", "),
+    latitude: Number(result.latitude),
+    longitude: Number(result.longitude),
+    timezone: String(result.timezone ?? "auto"),
+    updated_at: new Date().toISOString()
+  };
+  const { error } = await admin.from("family_weather_settings").upsert(row, { onConflict: "family_id" });
+  if (error) throw databaseError(error);
+  return homeDashboard(familyId);
+}
+
+async function updateProfileWarmth(familyId: string, profileId: string, body: { runsCold?: boolean }) {
+  await assertProfileFamily(profileId, familyId);
+  return fromProfile(await updateSingle("profiles", profileId, { runs_cold: Boolean(body.runsCold) }));
+}
+
+async function fetchWeather(setting: Record<string, unknown>) {
+  const params = new URLSearchParams({
+    latitude: String(setting.latitude),
+    longitude: String(setting.longitude),
+    current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+    hourly: "precipitation_probability",
+    daily: "temperature_2m_max,temperature_2m_min,sunrise,sunset",
+    forecast_days: "1",
+    timezone: String(setting.timezone ?? "auto")
+  });
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+  if (!response.ok) throw Object.assign(new Error("Weather is temporarily unavailable."), { status: 503 });
+  const payload = await response.json();
+  const currentHour = String(payload.current?.time ?? "").slice(0, 13) + ":00";
+  const hourIndex = Math.max(0, (payload.hourly?.time ?? []).indexOf(currentHour));
+  const weatherCode = Number(payload.current?.weather_code ?? 0);
+  return {
+    locationName: String(setting.location_name),
+    latitude: Number(setting.latitude),
+    longitude: Number(setting.longitude),
+    timezone: String(payload.timezone ?? setting.timezone),
+    observedAt: String(payload.current?.time ?? new Date().toISOString()),
+    temperatureC: Number(payload.current?.temperature_2m ?? 0),
+    apparentTemperatureC: Number(payload.current?.apparent_temperature ?? 0),
+    precipitationProbability: Number(payload.hourly?.precipitation_probability?.[hourIndex] ?? 0),
+    weatherCode,
+    windSpeedKmh: Number(payload.current?.wind_speed_10m ?? 0),
+    highC: Number(payload.daily?.temperature_2m_max?.[0] ?? 0),
+    lowC: Number(payload.daily?.temperature_2m_min?.[0] ?? 0),
+    sunrise: String(payload.daily?.sunrise?.[0] ?? ""),
+    sunset: String(payload.daily?.sunset?.[0] ?? ""),
+    summary: weatherSummary(weatherCode)
+  };
+}
+
+function outfitForProfile(profile: ReturnType<typeof fromProfile>, weather: Awaited<ReturnType<typeof fetchWeather>>) {
+  const feels = weather.apparentTemperatureC - (profile.runsCold ? 3 : 0);
+  const layers = feels < 3
+    ? ["Thermal base layer", "Warm jumper", "Insulated coat", "Hat and gloves"]
+    : feels < 10
+      ? ["Long-sleeve top", "Jumper", "Weatherproof jacket"]
+      : feels < 17
+        ? ["Long-sleeve top", "Light jacket"]
+        : feels < 24
+          ? ["Breathable top", "Light trousers"]
+          : ["Light cotton top", "Shorts or airy trousers", "Sun hat"];
+  if (weather.precipitationProbability >= 35) layers.push("Rain jacket or umbrella");
+  if (!profile.isParent && feels < 15) layers.push("One easy-to-remove extra layer");
+  if (weather.weatherCode === 0 && weather.highC >= 20) layers.push("Sun protection");
+  return {
+    profileId: profile.id,
+    profileName: profile.fullName,
+    layers: Array.from(new Set(layers)),
+    note: profile.runsCold ? "Adjusted warmer for this person." : profile.isParent ? "Comfortable adult layers for today." : "Child-friendly layers for changing temperatures."
+  };
+}
+
+function weatherSummary(code: number) {
+  if (code === 0) return "Clear";
+  if (code <= 3) return "Partly cloudy";
+  if ([45, 48].includes(code)) return "Foggy";
+  if (code >= 51 && code <= 67) return "Rainy";
+  if (code >= 71 && code <= 77) return "Snowy";
+  if (code >= 80 && code <= 82) return "Showers";
+  if (code >= 95) return "Thunderstorms";
+  return "Changeable";
+}
+
+async function assistantChat(familyId: string, body: { message?: string }) {
+  const message = String(body.message ?? "").trim();
+  if (!message) throw Object.assign(new Error("Write a question or request first."), { status: 400 });
+  const [profiles, tasks, routines, mealPlans, videoCandidates, friendData, financeData] = await Promise.all([
+    select("profiles", "id,full_name,is_parent", { family_id: familyId }),
+    select("tasks", "id,title,status,due_date,assigned_to_id", { family_id: familyId }),
+    select("routines", "id,title,days_of_week", { family_id: familyId }),
+    listMealPlan(familyId, new Date().toISOString().slice(0, 10)),
+    listVideos(familyId, message),
+    friendCircle(familyId),
+    financeDashboard(familyId, monthKey())
+  ]);
+  const routineItems = (await Promise.all(routines.map(async (routine) => {
+    const items = await select("routine_items", "id,title,assigned_to_id", { routine_id: routine.id });
+    return items.map((item) => ({ ...item, routine_id: routine.id, routine_title: routine.title, days_of_week: routine.days_of_week }));
+  }))).flat();
+  const result = await generateGeminiTextJson(`You are FamOps, a concise and practical family household assistant.
+Answer the user's question using the supplied family context. Prepare up to three actions when the user asks FamOps to change something.
+Never claim a write action was completed. The user must press a confirmation button in the interface.
+Available action types:
+- CREATE_TASK payload: title, optional description, dueDate, assignedToId.
+- UPDATE_TASK_STATUS payload: taskId and status BACKLOG, TODO, IN_PROGRESS, or DONE.
+- ADD_ROUTINE_ITEMS payload: title, routineIds, optional assignedToId. Use all matching day routine IDs for weekdays, weekends, or the full week.
+- COMPLETE_ROUTINE_ITEMS payload: routineItemIds. Only choose items clearly identified by the user.
+- ADD_MEAL payload: date in YYYY-MM-DD, mealType BREAKFAST/SNACK/LUNCH/DINNER, audience family/kids, recipeTitle, optional notes.
+- RECORD_FRIEND_VISIT payload: friendId, visitedAt in YYYY-MM-DD, optional notes.
+- SET_RECURRING_BUDGET payload: category and non-negative amount. This changes the category limit for every month.
+Use only IDs present in context. If the person, routine, task, meal date, or intended item is ambiguous, ask a short clarification and return no action.
+Video search is read-only: use videoReferenceIds to return matching saved links, and do not create an action for searching.
+Today is ${new Date().toISOString()}.
+Family context: ${JSON.stringify({
+    profiles,
+    tasks: tasks.slice(0, 50),
+    routines,
+    routineItems,
+    plannedMeals: mealPlans.slice(0, 40),
+    friends: friendData.friends.map((friend) => ({ id: friend.id, name: friend.name, notes: friend.notes, lastMetAt: friend.lastMetAt, preferredGapWeeks: friend.preferredGapWeeks })),
+    friendVisits: friendData.visits.slice(0, 40),
+    currentFinances: { month: financeData.month, total: financeData.total, totals: financeData.totals, budgets: financeData.budgets },
+    videoCandidates: videoCandidates.slice(0, 8).map((video) => ({ id: video.id, title: video.title, summary: video.summary, topics: video.topics, similarity: video.similarity }))
+  })}
+User: ${message}
+Return JSON only: {"reply":"clear helpful response","actions":[{"type":"one available action type","label":"short confirmation button label","payload":{}}],"videoReferenceIds":["matching saved video id"]}`) as Record<string, unknown>;
+  const validVideoIds = new Set(videoCandidates.map((video) => video.id));
+  const requestedVideoIds = Array.isArray(result.videoReferenceIds) ? result.videoReferenceIds.map(String).filter((id) => validVideoIds.has(id)).slice(0, 4) : [];
+  return {
+    reply: String(result.reply ?? "I could not prepare an answer."),
+    actions: normalizeAssistantActions(result.actions, { profiles, tasks, routines, routineItems, friends: friendData.friends }),
+    references: requestedVideoIds.flatMap((id) => {
+      const video = videoCandidates.find((candidate) => candidate.id === id);
+      return video ? [{ type: "VIDEO", id: video.id, title: video.title, url: video.url, summary: video.summary }] : [];
+    }),
+    provider: "GEMINI"
+  };
+}
+
+function normalizeAssistantActions(
+  rawActions: unknown,
+  context: {
+    profiles: Record<string, unknown>[];
+    tasks: Record<string, unknown>[];
+    routines: Record<string, unknown>[];
+    routineItems: Record<string, unknown>[];
+    friends: Array<{ id: string }>;
+  }
+) {
+  if (!Array.isArray(rawActions)) return [];
+  const profileIds = new Set(context.profiles.map((item) => String(item.id)));
+  const taskIds = new Set(context.tasks.map((item) => String(item.id)));
+  const routineIds = new Set(context.routines.map((item) => String(item.id)));
+  const routineItemIds = new Set(context.routineItems.map((item) => String(item.id)));
+  const friendIds = new Set(context.friends.map((item) => String(item.id)));
+  const statuses = new Set(["BACKLOG", "TODO", "IN_PROGRESS", "DONE"]);
+  const mealTypes = new Set(["BREAKFAST", "SNACK", "LUNCH", "DINNER"]);
+
+  return rawActions.slice(0, 3).flatMap<{
+    id: string;
+    label: string;
+    type: string;
+    payload: Record<string, unknown>;
+  }>((raw, index) => {
+    if (!raw || typeof raw !== "object") return [];
+    const action = raw as Record<string, unknown>;
+    const payload = action.payload && typeof action.payload === "object" ? action.payload as Record<string, unknown> : {};
+    const type = String(action.type ?? "");
+    const base = { id: `action-${Date.now()}-${index}`, label: String(action.label ?? "Confirm action").slice(0, 80) };
+    const assignedToId = profileIds.has(String(payload.assignedToId ?? "")) ? String(payload.assignedToId) : undefined;
+
+    if (type === "CREATE_TASK") {
+      const title = String(payload.title ?? "").trim();
+      if (!title) return [];
+      return [{ ...base, type, payload: { title: title.slice(0, 240), description: optionalText(payload.description), dueDate: validDate(payload.dueDate), assignedToId } }];
+    }
+    if (type === "UPDATE_TASK_STATUS") {
+      const taskId = String(payload.taskId ?? "");
+      const status = String(payload.status ?? "");
+      if (!taskIds.has(taskId) || !statuses.has(status)) return [];
+      return [{ ...base, type, payload: { taskId, status } }];
+    }
+    if (type === "ADD_ROUTINE_ITEMS") {
+      const title = String(payload.title ?? "").trim();
+      const selectedRoutineIds = Array.isArray(payload.routineIds) ? payload.routineIds.map(String).filter((id) => routineIds.has(id)) : [];
+      if (!title || !selectedRoutineIds.length) return [];
+      return [{ ...base, type, payload: { routineIds: Array.from(new Set(selectedRoutineIds)), title: title.slice(0, 240), assignedToId } }];
+    }
+    if (type === "COMPLETE_ROUTINE_ITEMS") {
+      const selectedItemIds = Array.isArray(payload.routineItemIds) ? payload.routineItemIds.map(String).filter((id) => routineItemIds.has(id)) : [];
+      if (!selectedItemIds.length) return [];
+      return [{ ...base, type, payload: { routineItemIds: Array.from(new Set(selectedItemIds)) } }];
+    }
+    if (type === "ADD_MEAL") {
+      const date = validDate(payload.date)?.slice(0, 10);
+      const mealType = String(payload.mealType ?? "").toUpperCase();
+      const audience = String(payload.audience ?? "family").toLowerCase();
+      const recipeTitle = String(payload.recipeTitle ?? "").trim();
+      if (!date || !mealTypes.has(mealType) || !["family", "kids"].includes(audience) || !recipeTitle) return [];
+      return [{ ...base, type, payload: { date, mealType, audience, recipeTitle: recipeTitle.slice(0, 240), notes: optionalText(payload.notes) } }];
+    }
+    if (type === "RECORD_FRIEND_VISIT") {
+      const friendId = String(payload.friendId ?? "");
+      const visitedAt = validDate(payload.visitedAt) ?? new Date().toISOString();
+      if (!friendIds.has(friendId)) return [];
+      return [{ ...base, type, payload: { friendId, visitedAt, notes: optionalText(payload.notes) } }];
+    }
+    if (type === "SET_RECURRING_BUDGET") {
+      const category = String(payload.category ?? "") as ExpenseCategory;
+      const amount = Number(payload.amount);
+      if (!categories.includes(category) || !Number.isFinite(amount) || amount < 0) return [];
+      return [{ ...base, type, payload: { category, amount: Math.round(amount * 100) / 100 } }];
+    }
+    return [];
+  });
+}
+
+function optionalText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text ? text.slice(0, 1000) : undefined;
+}
+
+function validDate(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text && !Number.isNaN(new Date(text).getTime()) ? text : undefined;
+}
+
+async function listVideos(familyId: string, query: string) {
+  const items = await select("video_library_items", "*", { family_id: familyId });
+  if (!query.trim()) return items.map(fromVideo).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  try {
+    const embedding = await generateGeminiEmbedding(query.trim());
+    const { data, error } = await admin.rpc("match_family_videos", {
+      p_family_id: familyId,
+      p_embedding: JSON.stringify(embedding),
+      p_match_threshold: 0.68,
+      p_match_count: 30
+    });
+    if (error) throw databaseError(error);
+    const scores = new Map((data ?? []).map((match: { id: string; similarity: number }) => [match.id, Number(match.similarity)]));
+    return items
+      .filter((item) => scores.has(String(item.id)))
+      .map((item) => ({ ...fromVideo(item), similarity: scores.get(String(item.id)) }))
+      .sort((a, b) => Number(b.similarity) - Number(a.similarity));
+  } catch {
+    const needle = query.toLowerCase();
+    return items.map(fromVideo).filter((item) => [item.title, item.summary, item.transcript, ...item.topics].join(" ").toLowerCase().includes(needle));
+  }
+}
+
+async function analyzeVideo(familyId: string, userId: string, body: { url?: string; notes?: string }) {
+  const url = normalizeHttpUrl(body.url);
+  const platform = videoPlatform(url);
+  const notes = String(body.notes ?? "").trim();
+  let analysis: Record<string, unknown>;
+  let status = "READY";
+  let errorMessage: string | null = null;
+
+  if (platform === "YOUTUBE") {
+    analysis = await analyzeYouTubeVideo(url, videoAnalysisPrompt());
+  } else {
+    const extracted = await extractSocialVideo(url);
+    if (extracted) {
+      analysis = isVideoAnalysis(extracted.analysis)
+        ? extracted.analysis
+        : await generateGeminiTextJson(`${videoAnalysisPrompt()}\nAnalyze this extracted transcript and metadata:\n${JSON.stringify(extracted).slice(0, 20000)}`) as Record<string, unknown>;
+    } else if (notes) {
+      analysis = await generateGeminiTextJson(`${videoAnalysisPrompt()}\nThe user supplied these notes or captions for ${url}:\n${notes}`) as Record<string, unknown>;
+    } else {
+      status = "NEEDS_PROVIDER";
+      errorMessage = "Automatic reel analysis is not configured yet. Add caption notes or connect the private media worker.";
+      analysis = { title: new URL(url).hostname, summary: "Saved link awaiting analysis.", transcript: "", topics: [], contentType: "Other" };
+    }
+  }
+
+  const title = String(analysis.title ?? new URL(url).hostname).trim().slice(0, 240);
+  const summary = String(analysis.summary ?? "").trim();
+  const transcript = String(analysis.transcript ?? notes).trim();
+  const topics = Array.isArray(analysis.topics) ? analysis.topics.map(String).filter(Boolean).slice(0, 20) : [];
+  const contentType = String(analysis.contentType ?? "Other").trim().slice(0, 80);
+  const semanticText = [title, summary, transcript, topics.join(" "), contentType].filter(Boolean).join("\n");
+  let embedding: number[] | null = null;
+  if (semanticText && status === "READY") {
+    try { embedding = await generateGeminiEmbedding(semanticText); } catch { embedding = null; }
+  }
+  const row = {
+    family_id: familyId,
+    created_by_user_id: userId,
+    url,
+    platform,
+    title,
+    summary,
+    transcript,
+    topics,
+    content_type: contentType,
+    status,
+    error_message: errorMessage,
+    embedding: embedding ? JSON.stringify(embedding) : null,
+    updated_at: new Date().toISOString()
+  };
+  const { data, error } = await admin.from("video_library_items").upsert(row, { onConflict: "family_id,url" }).select().single();
+  if (error) throw databaseError(error);
+  return fromVideo(data as Record<string, unknown>);
+}
+
+async function extractSocialVideo(url: string) {
+  const endpoint = Deno.env.get("MEDIA_EXTRACTOR_URL");
+  if (!endpoint) return null;
+  const apiKey = Deno.env.get("MEDIA_EXTRACTOR_API_KEY");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+    body: JSON.stringify({ url, output: "analysis", storeMedia: false }),
+    signal: AbortSignal.timeout(120000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof payload?.detail === "string" ? payload.detail : "The social video extractor could not process this link.";
+    throw Object.assign(new Error(message), { status: response.status === 422 ? 400 : 502 });
+  }
+  return payload as { analysis?: Record<string, unknown> } & Record<string, unknown>;
+}
+
+function isVideoAnalysis(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.title === "string" && typeof candidate.summary === "string" && Array.isArray(candidate.topics);
+}
+
+async function deleteVideo(familyId: string, id: string) {
+  const item = await maybeSingle("video_library_items", "id", { id, family_id: familyId });
+  if (!item) throw Object.assign(new Error("Saved video not found."), { status: 404 });
+  await remove("video_library_items", id);
+  return { deleted: true, videoId: id };
+}
+
+function normalizeHttpUrl(value: unknown) {
+  let parsed: URL;
+  try { parsed = new URL(String(value ?? "").trim()); } catch { throw Object.assign(new Error("Enter a valid video link."), { status: 400 }); }
+  if (!["http:", "https:"].includes(parsed.protocol)) throw Object.assign(new Error("Only web video links are supported."), { status: 400 });
+  return parsed.toString();
+}
+
+function videoPlatform(url: string) {
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  if (host === "youtu.be" || host.endsWith("youtube.com")) return "YOUTUBE";
+  if (host.endsWith("instagram.com")) return "INSTAGRAM";
+  if (host.endsWith("tiktok.com")) return "TIKTOK";
+  return "OTHER";
+}
+
+function videoAnalysisPrompt() {
+  return `Understand this video from both speech and visible content. Return JSON only with:
+{"title":"descriptive title","summary":"useful 2-4 sentence summary","transcript":"searchable transcript or detailed narration with important facts","topics":["specific search terms and broader concepts"],"contentType":"Recipe|Parenting|Travel|Fitness|Learning|Home|Other"}.
+For a recipe include the dish name, cuisine, ingredients, and main steps in the transcript. Do not invent details you cannot observe.`;
 }
 
 async function routineDay(familyId: string, requestedWeekday: Weekday | null) {
@@ -587,19 +1019,23 @@ async function financeDashboard(familyId: string, month: string) {
   const expenses = (await select("expenses", "*", { family_id: familyId })).map(fromExpense).filter((expense) => expense.date.startsWith(month));
   const totals = Object.fromEntries(categories.map((category) => [category, 0])) as Record<ExpenseCategory, number>;
   for (const expense of expenses) totals[expense.category] += expense.amount;
-  const storedBudgets = (await select("monthly_budgets", "*", { family_id: familyId, month })).map(fromBudget);
+  const recurringBudgets = (await select("recurring_budgets", "*", { family_id: familyId })).map(fromRecurringBudget);
   const budgets = categories.map((category) => {
-    const amount = storedBudgets.find((budget) => budget.category === category)?.amount ?? defaultBudgets[category] ?? 0;
+    const recurring = recurringBudgets.find((budget) => budget.category === category);
+    const amount = recurring?.amount ?? defaultBudgets[category] ?? 0;
     const spent = totals[category];
-    return { category, amount, spent, remaining: amount - spent, percentage: amount > 0 ? Math.round((spent / amount) * 100) : spent > 0 ? 100 : 0 };
+    return { category, amount, spent, remaining: amount - spent, percentage: amount > 0 ? Math.round((spent / amount) * 100) : spent > 0 ? 100 : 0, recurring: true };
   });
   return { month, total: expenses.reduce((sum, expense) => sum + expense.amount, 0), totals, budgets, expenses: expenses.sort((a, b) => b.date.localeCompare(a.date)) };
 }
 
-async function saveBudget(familyId: string, month: string, category: ExpenseCategory, amount: number) {
-  const existing = await maybeSingle("monthly_budgets", "*", { family_id: familyId, month, category });
-  const row = { family_id: familyId, month, category, amount };
-  return fromBudget(existing ? await updateSingle("monthly_budgets", String(existing.id), row) : await insertSingle("monthly_budgets", row));
+async function saveRecurringBudget(familyId: string, category: ExpenseCategory, amount: number) {
+  if (!categories.includes(category) || !Number.isFinite(amount) || amount < 0) {
+    throw Object.assign(new Error("Enter a valid non-negative recurring budget."), { status: 400 });
+  }
+  const existing = await maybeSingle("recurring_budgets", "*", { family_id: familyId, category });
+  const row = { family_id: familyId, category, amount: Math.round(amount * 100) / 100 };
+  return fromRecurringBudget(existing ? await updateSingle("recurring_budgets", String(existing.id), row) : await insertSingle("recurring_budgets", row));
 }
 
 async function addReceiptJson(familyId: string, body: Record<string, unknown>, receiptUrl?: string) {
@@ -649,6 +1085,7 @@ async function selectRecipe(familyId: string, body: Record<string, unknown>) {
   const recipe = body.recipe as {
     title: string;
     stepByStepInstructions?: string[];
+    ingredientsUsed?: string[];
     missingIngredients?: string[];
     calories?: number;
     proteinGrams?: number;
@@ -658,7 +1095,7 @@ async function selectRecipe(familyId: string, body: Record<string, unknown>) {
   };
   if (!recipe?.title) throw Object.assign(new Error("Recipe title is required."), { status: 400 });
   const servings = normalizeServings(recipe.servings ?? body.servings);
-  const shoppingItems = normalizeShoppingItems(recipe.shoppingItems ?? buildShoppingItems(recipe.ingredientsUsed ?? [recipe.title], servings));
+  const shoppingItems = normalizeShoppingItems(recipe.shoppingItems ?? []);
   const mealPlan = await insertSingle("meal_plans", {
     family_id: familyId,
     date: body.date,
@@ -673,6 +1110,7 @@ async function selectRecipe(familyId: string, body: Record<string, unknown>) {
     notes: body.notes ? String(body.notes) : null,
     servings_adults: servings.adults,
     servings_kids: servings.kids,
+    ingredients_used: recipe.ingredientsUsed ?? [],
     shopping_items: shoppingItems
   });
   for (const name of recipe.missingIngredients ?? []) {
@@ -710,6 +1148,7 @@ async function addManualMeal(familyId: string, body: Record<string, unknown>) {
       notes: body.notes ? String(body.notes) : null,
       servings_adults: clampNumber(Number(body.servingsAdults ?? 2), 1, 12),
       servings_kids: clampNumber(Number(body.servingsKids ?? 0), 0, 12),
+      ingredients_used: Array.isArray(body.ingredientsUsed) ? body.ingredientsUsed.map(String).slice(0, 20) : [],
       shopping_items: normalizeShoppingItems(Array.isArray(body.shoppingItems) ? body.shoppingItems : [])
     })
   );
@@ -722,9 +1161,62 @@ async function deleteMealPlan(familyId: string, id: string) {
   return { deleted: true, mealPlanId: id };
 }
 
+async function getWeeklyShoppingList(familyId: string, startDate: string | null) {
+  const weekStart = normalizeWeekStart(startDate);
+  const existing = await maybeSingle("weekly_shopping_lists", "*", { family_id: familyId, week_start: weekStart });
+  return existing ? fromWeeklyShoppingList(existing) : { weekStart, items: [], updatedAt: undefined };
+}
+
+async function generateWeeklyShoppingList(familyId: string, body: Record<string, unknown>) {
+  const weekStart = normalizeWeekStart(body.startDate);
+  const meals = await listMealPlan(familyId, weekStart);
+  if (!meals.length) throw Object.assign(new Error("Save at least one meal in this week before generating a shopping list."), { status: 400 });
+
+  let items: ShoppingItem[] = [];
+  if (Deno.env.get("GEMINI_API_KEY")) {
+    const result = await generateGeminiTextJson(`Build one consolidated shopping list for these planned meals. Return JSON only: {"items":[{"name":"Tomatoes","quantity":3,"unit":"pcs","category":"VEGETABLE|PROTEIN|GRAIN|DAIRY|FRUIT|OTHER"}]}.
+Use the recipe ingredients and serving counts. Add the same ingredient only once and total its quantities accurately. Include core food items such as vegetables, fruit, eggs, meat, fish, dairy, grains, and legumes. Exclude water, salt, oil, spices, herbs used only as seasoning, and masalas. Do not add an ingredient merely because it appears in another meal.
+Meals: ${JSON.stringify(meals.map((meal) => ({ title: meal.recipeTitle, ingredients: meal.ingredientsUsed, servings: { adults: meal.servingsAdults, kids: meal.servingsKids }, instructions: meal.instructions })))}.`) as Record<string, unknown>;
+    items = normalizeShoppingItems(Array.isArray(result.items) ? result.items : []);
+  } else {
+    items = normalizeShoppingItems(meals.flatMap((meal) => buildShoppingItems(meal.ingredientsUsed.length ? meal.ingredientsUsed : [meal.recipeTitle], { adults: meal.servingsAdults, kids: meal.servingsKids })));
+  }
+  return saveWeeklyShoppingList(familyId, { startDate: weekStart, items });
+}
+
+async function saveWeeklyShoppingList(familyId: string, body: Record<string, unknown>) {
+  const weekStart = normalizeWeekStart(body.startDate);
+  const items = normalizeShoppingItems(Array.isArray(body.items) ? body.items.slice(0, 120) : []);
+  const existing = await maybeSingle("weekly_shopping_lists", "*", { family_id: familyId, week_start: weekStart });
+  const row = { family_id: familyId, week_start: weekStart, items };
+  return fromWeeklyShoppingList(existing ? await updateSingle("weekly_shopping_lists", String(existing.id), row) : await insertSingle("weekly_shopping_lists", row));
+}
+
+function normalizeWeekStart(value: unknown) {
+  const date = String(value ?? new Date().toISOString().slice(0, 10)).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00.000Z`).getTime())) {
+    throw Object.assign(new Error("Enter a valid week start date."), { status: 400 });
+  }
+  return date;
+}
+
 async function friendCircle(familyId: string) {
   const friends = (await select("friends", "*", { family_id: familyId, is_active: true })).map(fromFriend).sort(friendSort);
-  return { friends, suggestions: buildFriendSuggestions(friends) };
+  const visits = (await select("friend_visits", "*", { family_id: familyId })).map(fromFriendVisit).sort((a, b) => b.visitedAt.localeCompare(a.visitedAt));
+  return { friends, visits, suggestions: buildFriendSuggestions(friends) };
+}
+
+async function friendAssistant(familyId: string, body: Record<string, unknown>) {
+  const message = String(body.message ?? "").trim();
+  if (!message) throw Object.assign(new Error("Ask a question about your friend plans first."), { status: 400 });
+  const dashboard = await friendCircle(familyId);
+  const result = await generateGeminiTextJson(`You are a considerate social-planning assistant. Use only the supplied friend list and visit history. Help plan catch-ups without guilt or pressure. Consider preferred gaps, recency, notes, and the next eight weekends. Return JSON only: {"reply":"concise practical answer"}.
+Today: ${new Date().toISOString()}
+Friends: ${JSON.stringify(dashboard.friends)}
+Visit history: ${JSON.stringify(dashboard.visits.slice(0, 80))}
+Upcoming suggestions: ${JSON.stringify(dashboard.suggestions)}
+Question: ${message}`) as Record<string, unknown>;
+  return { reply: String(result.reply ?? "I could not prepare a friend plan."), provider: "GEMINI" };
 }
 
 async function createFriend(familyId: string, body: Record<string, unknown>) {
@@ -758,9 +1250,51 @@ async function updateFriend(familyId: string, id: string, body: Record<string, u
 }
 
 async function markFriendMet(familyId: string, id: string, metAt?: string) {
-  const existing = await maybeSingle("friends", "*", { id, family_id: familyId, is_active: true });
-  if (!existing) throw Object.assign(new Error("Friend not found"), { status: 404 });
-  return fromFriend(await updateSingle("friends", id, { last_met_at: metAt ? String(metAt) : new Date().toISOString() }));
+  await recordFriendVisit(familyId, id, { visitedAt: metAt, notes: "Quick visit log" });
+  const friend = await maybeSingle("friends", "*", { id, family_id: familyId, is_active: true });
+  return fromFriend(friend!);
+}
+
+async function recordFriendVisit(familyId: string, friendId: string, body: Record<string, unknown>) {
+  const friend = await maybeSingle("friends", "*", { id: friendId, family_id: familyId, is_active: true });
+  if (!friend) throw Object.assign(new Error("Friend not found"), { status: 404 });
+  const visitedAt = body.visitedAt ? String(body.visitedAt) : new Date().toISOString();
+  if (Number.isNaN(new Date(visitedAt).getTime())) throw Object.assign(new Error("Enter a valid visit date."), { status: 400 });
+  const visit = await insertSingle("friend_visits", {
+    family_id: familyId,
+    friend_id: friendId,
+    visited_at: visitedAt,
+    notes: optionalText(body.notes) ?? null
+  });
+  await syncFriendLastMet(familyId, friendId);
+  return fromFriendVisit(visit);
+}
+
+async function updateFriendVisit(familyId: string, friendId: string, visitId: string, body: Record<string, unknown>) {
+  const visit = await maybeSingle("friend_visits", "*", { id: visitId, friend_id: friendId, family_id: familyId });
+  if (!visit) throw Object.assign(new Error("Visit not found"), { status: 404 });
+  const visitedAt = body.visitedAt === undefined ? String(visit.visited_at) : String(body.visitedAt);
+  if (Number.isNaN(new Date(visitedAt).getTime())) throw Object.assign(new Error("Enter a valid visit date."), { status: 400 });
+  const updated = await updateSingle("friend_visits", visitId, {
+    visited_at: visitedAt,
+    notes: body.notes === undefined ? visit.notes : optionalText(body.notes) ?? null
+  });
+  await syncFriendLastMet(familyId, friendId);
+  return fromFriendVisit(updated);
+}
+
+async function deleteFriendVisit(familyId: string, friendId: string, visitId: string) {
+  const visit = await maybeSingle("friend_visits", "id", { id: visitId, friend_id: friendId, family_id: familyId });
+  if (!visit) throw Object.assign(new Error("Visit not found"), { status: 404 });
+  await remove("friend_visits", visitId);
+  await syncFriendLastMet(familyId, friendId);
+  return { deleted: true, visitId };
+}
+
+async function syncFriendLastMet(familyId: string, friendId: string) {
+  const visits = await select("friend_visits", "visited_at", { family_id: familyId, friend_id: friendId });
+  const latest = visits.map((visit) => String(visit.visited_at)).sort().at(-1) ?? null;
+  await updateSingle("friends", friendId, { last_met_at: latest });
 }
 
 async function deleteFriend(familyId: string, id: string) {
@@ -866,7 +1400,7 @@ function fromFamily(row: Record<string, unknown>) {
   return { id: row.id, name: row.name, createdAt: row.created_at };
 }
 function fromProfile(row: Record<string, unknown>) {
-  return { id: row.id, familyId: row.family_id, fullName: row.full_name, initials: row.initials, isParent: row.is_parent, stars: row.stars };
+  return { id: row.id, familyId: row.family_id, fullName: row.full_name, initials: row.initials, isParent: row.is_parent, stars: row.stars, runsCold: Boolean(row.runs_cold) };
 }
 function fromRoutineItem(row: Record<string, unknown>) {
   return { id: row.id, routineId: row.routine_id, title: row.title, assignedToId: row.assigned_to_id ?? undefined };
@@ -896,6 +1430,7 @@ function fromMealPlan(row: Record<string, unknown>) {
     notes: row.notes ? String(row.notes) : undefined,
     servingsAdults: Number(row.servings_adults ?? 2),
     servingsKids: Number(row.servings_kids ?? 0),
+    ingredientsUsed: Array.isArray(row.ingredients_used) ? row.ingredients_used.map(String) : [],
     shoppingItems: normalizeShoppingItems(Array.isArray(row.shopping_items) ? row.shopping_items : [])
   };
 }
@@ -904,6 +1439,9 @@ function fromExpense(row: Record<string, unknown>) {
 }
 function fromBudget(row: Record<string, unknown>) {
   return { id: row.id, familyId: row.family_id, month: row.month, category: row.category as ExpenseCategory, amount: Number(row.amount) };
+}
+function fromRecurringBudget(row: Record<string, unknown>) {
+  return { id: row.id, familyId: row.family_id, category: row.category as ExpenseCategory, amount: Number(row.amount), updatedAt: row.updated_at };
 }
 function fromReward(row: Record<string, unknown>) {
   return { id: row.id, familyId: row.family_id, title: row.title, starsRequired: row.stars_required, category: row.category, iconKey: row.icon_key, isActive: row.is_active, createdAt: row.created_at };
@@ -926,6 +1464,43 @@ function fromFriend(row: Record<string, unknown>) {
     isActive: Boolean(row.is_active),
     createdAt: String(row.created_at),
     updatedAt: row.updated_at ? String(row.updated_at) : undefined
+  };
+}
+function fromFriendVisit(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    familyId: String(row.family_id),
+    friendId: String(row.friend_id),
+    visitedAt: String(row.visited_at),
+    notes: row.notes ? String(row.notes) : undefined,
+    createdAt: String(row.created_at),
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined
+  };
+}
+function fromWeeklyShoppingList(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    weekStart: String(row.week_start),
+    items: normalizeShoppingItems(Array.isArray(row.items) ? row.items : []),
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined
+  };
+}
+
+function fromVideo(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    familyId: String(row.family_id),
+    url: String(row.url),
+    platform: String(row.platform),
+    title: String(row.title),
+    summary: String(row.summary ?? ""),
+    transcript: String(row.transcript ?? ""),
+    topics: Array.isArray(row.topics) ? row.topics.map(String) : [],
+    contentType: String(row.content_type ?? "Other"),
+    status: String(row.status ?? "READY"),
+    errorMessage: row.error_message ? String(row.error_message) : undefined,
+    createdAt: String(row.created_at),
+    similarity: row.similarity === undefined ? undefined : Number(row.similarity)
   };
 }
 
@@ -1048,7 +1623,7 @@ function kitchenLibrary() {
   };
 }
 
-function generateMeals(body: Record<string, unknown>) {
+async function generateMeals(body: Record<string, unknown>) {
   const ingredients = parseIngredients(String(body.ingredients ?? ""));
   const mealTypes = Array.isArray(body.mealTypes) && body.mealTypes.length ? body.mealTypes.map(String) : ["LUNCH", "DINNER"];
   const includes = Array.isArray(body.includes) ? body.includes.map(String) : [];
@@ -1056,22 +1631,45 @@ function generateMeals(body: Record<string, unknown>) {
   const cuisine = String(body.cuisine ?? "ANY");
   const servings = normalizeServings(body.servings);
   const customIncludes = includes.filter((item) => !defaultMealIncludes.includes(item));
-  const base = Array.from(new Set([...(ingredients.length ? ingredients : ["rice", "dal", "tomato", "curd"]), ...customIncludes.map((item) => item.toLowerCase())]));
+  const available = Array.from(new Set([...ingredients, ...customIncludes.map((item) => item.toLowerCase())]));
+  if (!includes.length) throw Object.assign(new Error("Choose at least one ingredient group before generating recipes."), { status: 400 });
+
+  if (Deno.env.get("GEMINI_API_KEY")) {
+    try {
+      const expectedCount = Math.min(28, Math.max(7, 7 * mealTypes.slice(0, 4).length));
+      const generated = await generateGeminiTextJson(`Create a practical seven-day family meal candidate list.
+Return JSON only: {"recipes":[{"title":"specific real dish","mealType":"BREAKFAST|SNACK|LUNCH|DINNER","prepTimeMinutes":25,"isKidFriendly":true,"ingredientsUsed":["ingredient with realistic recipe quantity"],"missingIngredients":["only core fresh item not listed as available"],"stepByStepInstructions":["specific cooking step"],"calories":400,"proteinGrams":20,"cuisine":"Indian"}]}.
+Generate exactly ${expectedCount} recipes, evenly covering these meal types: ${mealTypes.slice(0, 4).join(", ")}.
+Effort: ${effort}. Cuisine preference: ${cuisine}. Required ingredient groups: ${includes.join(", ")}.
+Ingredients already available: ${available.length ? available.join(", ") : "not specified"}.
+Cooking for ${servings.adults} adults and ${servings.kids} children. Use varied, recognizable dishes from the requested cuisine. Do not put rice, oats, or dal into every recipe unless explicitly necessary for that dish. Ingredient quantities must match the stated servings. Exclude salt, oil, water, spices, and masalas from missingIngredients.`) as Record<string, unknown>;
+      const rawRecipes = Array.isArray(generated.recipes) ? generated.recipes : [];
+      const recipes = rawRecipes.slice(0, expectedCount).flatMap((raw) => normalizeGeneratedRecipe(raw, servings));
+      if (recipes.length >= Math.min(7, expectedCount)) {
+        return { source: `${cuisine === "ANY" ? "Mixed cuisine" : titleCase(cuisine)} AI planner`, ingredients: available, recipes, confidence: 0.9, provider: "GEMINI" };
+      }
+    } catch {
+      // The deterministic planner remains usable when the AI provider is temporarily unavailable.
+    }
+  }
+
   const prep = effort === "HARD" || effort === "WEEKEND" ? 50 : effort === "MEDIUM" ? 32 : 20;
   const proteins = includes.filter((item) => ["Eggs", "Chicken", "Fish", "Paneer", "Tofu", "Dal", "Chickpeas"].includes(item));
   const proteinPool = proteins.length ? proteins : customIncludes.length ? customIncludes : ["Dal"];
+  const grainPool = includes.includes("Oats") ? ["oats"] : includes.includes("Millets") ? ["ragi", "jowar", "little millet"] : includes.includes("Rice") ? ["rice"] : ["whole wheat", "poha", "rice"];
+  const vegetablePool = available.filter((item) => /tomato|onion|carrot|spinach|cucumber|pumpkin|potato|peas|beans|capsicum|gourd|beetroot|corn|vegetable/.test(item));
   const recipes = Array.from({ length: 7 }).flatMap((_, dayIndex) =>
     mealTypes.slice(0, 4).map((mealType, mealIndex) => {
       const offset = dayIndex * mealTypes.length + mealIndex;
       const protein = proteinPool[offset % proteinPool.length];
-      const vegetable = includes.includes("Veggies") ? pick(base, offset + 1, "mixed vegetables") : pick(base, offset, "tomato");
-      const grain = includes.includes("Oats") ? "oats" : includes.includes("Millets") ? pick(["ragi", "jowar", "little millet"], offset, "ragi") : includes.includes("Rice") ? "rice" : pick(base, offset + 2, "rice");
+      const vegetable = includes.includes("Veggies") ? pick(vegetablePool, offset, pick(["spinach", "carrot", "capsicum", "pumpkin"], offset, "spinach")) : pick(vegetablePool, offset, "tomato");
+      const grain = pick(grainPool, offset, "rice");
       const recipeCuisine = cuisine === "ANY" ? pick(["INDIAN", "ASIAN", "EUROPEAN", "MEDITERRANEAN"], offset, "INDIAN") : cuisine;
       const title = generatedTitle(mealType, protein, vegetable, grain, recipeCuisine, offset);
       return recipe(
         title,
         prep + (offset % 3) * 5,
-        Array.from(new Set([grain, protein.toLowerCase(), vegetable, ...base.slice(0, 4)])),
+        Array.from(new Set([grain, protein.toLowerCase(), vegetable])),
         missingFor(protein, includes, recipeCuisine),
         recipeCuisine,
         servings
@@ -1080,7 +1678,7 @@ function generateMeals(body: Record<string, unknown>) {
   );
   return {
     source: `${cuisine === "ANY" ? "Mixed cuisine" : cuisine} planner`,
-    ingredients: base,
+    ingredients: available,
     recipes,
     confidence: 0.82,
     provider: "DEMO"
@@ -1101,8 +1699,29 @@ function recipe(title: string, prepTimeMinutes: number, ingredientsUsed: string[
     proteinGrams: estimateProtein(title, ingredientsUsed),
     cuisine,
     servings,
-    shoppingItems: buildShoppingItems(ingredientsUsed, servings)
+    shoppingItems: []
   };
+}
+
+function normalizeGeneratedRecipe(value: unknown, servings: MealServings) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const raw = value as Record<string, unknown>;
+  const title = String(raw.title ?? "").trim();
+  if (!title) return [];
+  const ingredientsUsed = Array.isArray(raw.ingredientsUsed) ? raw.ingredientsUsed.map(String).filter(Boolean).slice(0, 20) : [];
+  return [{
+    title: title.slice(0, 180),
+    prepTimeMinutes: clampNumber(Number(raw.prepTimeMinutes ?? 30), 10, 180),
+    isKidFriendly: Boolean(raw.isKidFriendly ?? true),
+    ingredientsUsed,
+    missingIngredients: Array.isArray(raw.missingIngredients) ? raw.missingIngredients.map(String).filter((item) => !isMasalaLike(item)).slice(0, 12) : [],
+    stepByStepInstructions: Array.isArray(raw.stepByStepInstructions) ? raw.stepByStepInstructions.map(String).filter(Boolean).slice(0, 12) : [],
+    calories: clampNumber(Number(raw.calories ?? estimateCalories(title, ingredientsUsed)), 50, 1800),
+    proteinGrams: clampNumber(Number(raw.proteinGrams ?? estimateProtein(title, ingredientsUsed)), 0, 150),
+    cuisine: String(raw.cuisine ?? "Mixed").slice(0, 60),
+    servings,
+    shoppingItems: []
+  }];
 }
 
 function normalizeServings(value: unknown): MealServings {

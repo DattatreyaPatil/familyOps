@@ -14,3 +14,5 @@ Design/
 Idea/
 npm-debug.log*
 *.tsbuildinfo
+__pycache__/
+*.py[cod]

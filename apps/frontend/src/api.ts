@@ -3,11 +3,15 @@ import type {
   BootstrapData,
   ExpenseCategory,
   FinanceDashboard,
+  HomeDashboard,
   Friend,
   FriendCircleDashboard,
+  FriendAssistantReply,
+  FriendVisit,
   KitchenLibrary,
   KitchenResult,
   MealPlanEntry,
+  WeeklyShoppingList,
   MealGenerationInput,
   MealServings,
   Profile,
@@ -21,6 +25,8 @@ import type {
   RoutineView,
   TaskStatus,
   TaskView,
+  AssistantReply,
+  VideoLibraryItem,
   Weekday
 } from "./types";
 import { supabase } from "./supabaseClient";
@@ -82,6 +88,18 @@ function useSupabaseApi() {
 
 export const api = {
   bootstrap: () => request<BootstrapData>("/api/bootstrap"),
+  home: () => request<HomeDashboard>("/api/home"),
+  saveHomeLocation: (city: string) =>
+    request<HomeDashboard>("/api/home/location", { method: "PUT", body: JSON.stringify({ city }) }),
+  setProfileWarmth: (profileId: string, runsCold: boolean) =>
+    request(`/api/profiles/${profileId}/warmth`, { method: "PATCH", body: JSON.stringify({ runsCold }) }),
+  assistantChat: (message: string) =>
+    request<AssistantReply>("/api/assistant/chat", { method: "POST", body: JSON.stringify({ message }) }),
+  videoLibrary: (query?: string) =>
+    request<VideoLibraryItem[]>(`/api/videos${query ? `?query=${encodeURIComponent(query)}` : ""}`),
+  analyzeVideo: (url: string, notes?: string) =>
+    request<VideoLibraryItem>("/api/videos/analyze", { method: "POST", body: JSON.stringify({ url, notes }) }),
+  deleteVideo: (videoId: string) => request(`/api/videos/${videoId}`, { method: "DELETE" }),
   routines: (weekday?: Weekday) => request<RoutineView[]>(`/api/routines/today${weekday ? `?weekday=${weekday}` : ""}`),
   checkRoutineItem: (routineItemId: string, completed = true) =>
     request("/api/routines/check", { method: "POST", body: JSON.stringify({ routineItemId, completed }) }),
@@ -119,6 +137,9 @@ export const api = {
   generateMeals: (input: MealGenerationInput) =>
     request<KitchenResult>("/api/kitchen/generate-meals", { method: "POST", body: JSON.stringify(input) }),
   mealPlan: (startDate?: string) => request<MealPlanEntry[]>(`/api/kitchen/meal-plan${startDate ? `?startDate=${startDate}` : ""}`),
+  weeklyShoppingList: (startDate: string) => request<WeeklyShoppingList>(`/api/kitchen/shopping-list?startDate=${encodeURIComponent(startDate)}`),
+  generateWeeklyShoppingList: (startDate: string) => request<WeeklyShoppingList>("/api/kitchen/shopping-list/generate", { method: "POST", body: JSON.stringify({ startDate }) }),
+  saveWeeklyShoppingList: (startDate: string, items: WeeklyShoppingList["items"]) => request<WeeklyShoppingList>("/api/kitchen/shopping-list", { method: "PUT", body: JSON.stringify({ startDate, items }) }),
   selectRecipe: (
     recipe: Recipe,
     date = new Date().toISOString(),
@@ -143,12 +164,18 @@ export const api = {
   }) => request<MealPlanEntry>("/api/kitchen/manual-meal", { method: "POST", body: JSON.stringify(input) }),
   deleteMealPlan: (mealPlanId: string) => request(`/api/kitchen/meal-plan/${mealPlanId}`, { method: "DELETE" }),
   friends: () => request<FriendCircleDashboard>("/api/friends"),
+  friendAssistant: (message: string) => request<FriendAssistantReply>("/api/friends/assistant", { method: "POST", body: JSON.stringify({ message }) }),
   createFriend: (input: { name: string; notes?: string; preferredGapWeeks?: number; lastMetAt?: string }) =>
     request<Friend>("/api/friends", { method: "POST", body: JSON.stringify(input) }),
   updateFriend: (friendId: string, input: { name?: string; notes?: string; preferredGapWeeks?: number; lastMetAt?: string; sortOrder?: number }) =>
     request<Friend>(`/api/friends/${friendId}`, { method: "PATCH", body: JSON.stringify(input) }),
   markFriendMet: (friendId: string, metAt?: string) =>
     request<Friend>(`/api/friends/${friendId}/met`, { method: "POST", body: JSON.stringify({ metAt }) }),
+  recordFriendVisit: (friendId: string, visitedAt: string, notes?: string) =>
+    request<FriendVisit>(`/api/friends/${friendId}/visits`, { method: "POST", body: JSON.stringify({ visitedAt, notes }) }),
+  updateFriendVisit: (friendId: string, visitId: string, input: { visitedAt?: string; notes?: string }) =>
+    request<FriendVisit>(`/api/friends/${friendId}/visits/${visitId}`, { method: "PATCH", body: JSON.stringify(input) }),
+  deleteFriendVisit: (friendId: string, visitId: string) => request(`/api/friends/${friendId}/visits/${visitId}`, { method: "DELETE" }),
   deleteFriend: (friendId: string) => request(`/api/friends/${friendId}`, { method: "DELETE" }),
   kids: () => request<Profile[]>("/api/kids"),
   rewardDashboard: () => request<RewardDashboard>("/api/kids/rewards"),
@@ -170,8 +197,8 @@ export const api = {
   approveReward: (redemptionId: string) => request(`/api/kids/redemptions/${redemptionId}/approve`, { method: "POST" }),
   rejectReward: (redemptionId: string) => request(`/api/kids/redemptions/${redemptionId}/reject`, { method: "POST" }),
   finance: (month?: string) => request<FinanceDashboard>(`/api/finance/dashboard${month ? `?month=${month}` : ""}`),
-  saveBudget: (month: string, category: ExpenseCategory, amount: number) =>
-    request(`/api/finance/budgets/${category}`, { method: "PUT", body: JSON.stringify({ month, amount }) }),
+  saveBudget: (category: ExpenseCategory, amount: number) =>
+    request(`/api/finance/budgets/${category}`, { method: "PUT", body: JSON.stringify({ amount }) }),
   addReceipt: (vendor: string, amount: number, category?: ExpenseCategory, date?: string) =>
     request("/api/finance/receipt", { method: "POST", body: JSON.stringify({ vendor, amount, category, date }) }),
   addReceiptImage: (vendor: string, amount: number, file?: File, category?: ExpenseCategory, date?: string) => {

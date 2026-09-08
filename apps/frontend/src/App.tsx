@@ -6,16 +6,25 @@ import {
   CheckSquare,
   ChefHat,
   Circle,
+  CloudSun,
   Compass,
   Dumbbell,
   Film,
+  ExternalLink,
   Gamepad2,
   Gift,
   IceCreamBowl,
   ListTodo,
+  LoaderCircle,
+  MapPin,
+  MessageCircle,
+  MoreHorizontal,
   Moon,
   PieChart,
   Save,
+  Search,
+  Send,
+  Shirt,
   Plus,
   Settings,
   Sparkles,
@@ -23,20 +32,28 @@ import {
   Sun,
   TreePine,
   Trash2,
+  Umbrella,
   Upload,
   UserPlus,
   Users,
   Utensils,
-  Waves
+  Video,
+  Wind,
+  Waves,
+  X
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type {
   AiStatus,
+  AssistantAction,
+  AssistantReference,
+  AssistantReply,
   ChildRewardTarget,
   ExpenseCategory,
   FinanceDashboard,
   FriendCircleDashboard,
+  HomeDashboard,
   KidsAgeBand,
   KitchenLibrary,
   KitchenResult,
@@ -55,10 +72,12 @@ import type {
   ShoppingItem,
   TaskStatus,
   TaskView,
+  VideoLibraryItem,
+  WeeklyShoppingList as WeeklyShoppingListData,
   Weekday
 } from "./types";
 
-type Tab = "routines" | "tasks" | "kitchen" | "friends" | "finances" | "kids" | "admin";
+type Tab = "home" | "routines" | "tasks" | "kitchen" | "videos" | "friends" | "finances" | "kids" | "admin";
 type ThemeMode = "light" | "dark";
 type RoutineDayPreset = "today" | "weekdays" | "weekend" | "full-week" | "custom";
 type KitchenAudience = "family" | "kids";
@@ -79,18 +98,21 @@ type ManualMealDraft = {
   proteinGrams: number;
   cuisine: string;
   notes: string;
-  shoppingText: string;
 };
 
 const tabs: Array<{ id: Tab; label: string; icon: typeof CheckSquare }> = [
+  { id: "home", label: "Today", icon: CloudSun },
   { id: "routines", label: "Routines", icon: CheckSquare },
   { id: "tasks", label: "Tasks", icon: ListTodo },
   { id: "kitchen", label: "Kitchen", icon: ChefHat },
+  { id: "videos", label: "Video saves", icon: Video },
   { id: "friends", label: "Friends", icon: Users },
   { id: "finances", label: "Finances", icon: PieChart },
   { id: "kids", label: "Kids", icon: Sparkles },
   { id: "admin", label: "Admin", icon: Settings }
 ];
+const mobileTabs = tabs.filter((item) => ["home", "routines", "tasks", "kitchen"].includes(item.id));
+const moreTabs = tabs.filter((item) => !mobileTabs.some((mobile) => mobile.id === item.id));
 
 const rewardCategories: RewardCategory[] = ["TREAT", "OUTING", "TOY", "SPORT", "ACTIVITY", "CUSTOM"];
 const mealTypes: MealType[] = ["BREAKFAST", "SNACK", "LUNCH", "DINNER"];
@@ -143,7 +165,8 @@ function RewardIcon({ iconKey }: { iconKey: RewardIconKey }) {
 }
 
 export function App() {
-  const [tab, setTab] = useState<Tab>("routines");
+  const [tab, setTab] = useState<Tab>("home");
+  const [moreOpen, setMoreOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("famops-theme") as ThemeMode | null) ?? "light");
 
   useEffect(() => {
@@ -184,16 +207,18 @@ export function App() {
           </div>
         </aside>
         <div className="content-area">
+          {tab === "home" && <HomePage goTo={setTab} />}
           {tab === "routines" && <RoutinesPage />}
           {tab === "tasks" && <TasksPage />}
           {tab === "kitchen" && <KitchenPage />}
+          {tab === "videos" && <VideoLibraryPage />}
           {tab === "friends" && <FriendsPage />}
           {tab === "finances" && <FinancePage />}
           {tab === "kids" && <KidsPage />}
           {tab === "admin" && <AdminPage goTo={setTab} />}
         </div>
         <nav className="bottom-nav" aria-label="Primary">
-          {tabs.map((item) => {
+          {mobileTabs.map((item) => {
             const Icon = item.icon;
             const active = item.id === tab;
             return (
@@ -203,11 +228,33 @@ export function App() {
               </button>
             );
           })}
-          <button className="nav-button theme-nav-button" onClick={toggleTheme} aria-label={`Switch to ${theme === "light" ? "dark" : "light"} theme`}>
-            {theme === "light" ? <Moon size={22} /> : <Sun size={22} />}
-            <span>{theme === "light" ? "Dark" : "Light"}</span>
+          <button className={`nav-button ${moreTabs.some((item) => item.id === tab) ? "nav-button-active" : ""}`} onClick={() => setMoreOpen(true)}>
+            <MoreHorizontal size={22} />
+            <span>More</span>
           </button>
         </nav>
+        {moreOpen && (
+          <div className="mobile-more-backdrop" role="presentation" onClick={() => setMoreOpen(false)}>
+            <section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="More sections" onClick={(event) => event.stopPropagation()}>
+              <div className="mobile-more-handle" />
+              <div className="mobile-more-heading"><strong>More sections</strong><button onClick={() => setMoreOpen(false)} aria-label="Close menu"><X size={19} /></button></div>
+              <div className="mobile-more-grid">
+                {moreTabs.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button key={item.id} onClick={() => { setTab(item.id); setMoreOpen(false); }}>
+                      <Icon size={21} /> <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+                <button onClick={toggleTheme}>
+                  {theme === "light" ? <Moon size={21} /> : <Sun size={21} />}
+                  <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </section>
     </main>
   );
@@ -219,6 +266,240 @@ function PageTitle({ title, eyebrow }: { title: string; eyebrow: string }) {
       <span>{eyebrow}</span>
       <h1>{title}</h1>
     </header>
+  );
+}
+
+type AssistantMessage = {
+  role: "user" | "assistant";
+  text: string;
+  actions?: AssistantAction[];
+  references?: AssistantReference[];
+};
+
+function HomePage({ goTo }: { goTo: (tab: Tab) => void }) {
+  const [dashboard, setDashboard] = useState<HomeDashboard | null>(null);
+  const [location, setLocation] = useState("");
+  const [question, setQuestion] = useState("");
+  const [messages, setMessages] = useState<AssistantMessage[]>([
+    { role: "assistant", text: "Ask me about the day, meals, routines, planning, or anything else. I can also prepare tasks for you to confirm." }
+  ]);
+  const [loading, setLoading] = useState(true);
+  const [weatherBusy, setWeatherBusy] = useState(false);
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => { loadHome(); }, []);
+
+  async function loadHome() {
+    setLoading(true);
+    try { setDashboard(await api.home()); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "Today could not be loaded."); }
+    finally { setLoading(false); }
+  }
+
+  async function saveLocation() {
+    if (!location.trim()) return;
+    setWeatherBusy(true);
+    setNotice("");
+    try {
+      setDashboard(await api.saveHomeLocation(location));
+      setLocation("");
+      setNotice("Weather location updated for the family.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Location could not be updated."); }
+    finally { setWeatherBusy(false); }
+  }
+
+  async function toggleWarmth(profileId: string, runsCold: boolean) {
+    try {
+      await api.setProfileWarmth(profileId, runsCold);
+      await loadHome();
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Clothing preference could not be saved."); }
+  }
+
+  async function askAssistant() {
+    const message = question.trim();
+    if (!message || assistantBusy) return;
+    setQuestion("");
+    setMessages((current) => [...current, { role: "user", text: message }]);
+    setAssistantBusy(true);
+    try {
+      const result: AssistantReply = await api.assistantChat(message);
+      setMessages((current) => [...current, { role: "assistant", text: result.reply, actions: result.actions, references: result.references }]);
+    } catch (error) {
+      setMessages((current) => [...current, { role: "assistant", text: error instanceof Error ? error.message : "I could not answer just now." }]);
+    } finally { setAssistantBusy(false); }
+  }
+
+  async function confirmAssistantAction(action: AssistantAction) {
+    try {
+      if (action.type === "CREATE_TASK") {
+        await api.createTask(action.payload);
+      } else if (action.type === "UPDATE_TASK_STATUS") {
+        await api.moveTask(action.payload.taskId, action.payload.status);
+      } else if (action.type === "ADD_ROUTINE_ITEMS") {
+        await Promise.all(action.payload.routineIds.map((routineId) => api.createRoutineItem({
+          routineId,
+          title: action.payload.title,
+          assignedToId: action.payload.assignedToId
+        })));
+      } else if (action.type === "COMPLETE_ROUTINE_ITEMS") {
+        await Promise.all(action.payload.routineItemIds.map((routineItemId) => api.checkRoutineItem(routineItemId, true)));
+      } else if (action.type === "ADD_MEAL") {
+        await api.upsertManualMeal({
+          date: action.payload.date,
+          mealType: action.payload.mealType,
+          audience: action.payload.audience,
+          recipeTitle: action.payload.recipeTitle,
+          notes: action.payload.notes
+        });
+      } else if (action.type === "RECORD_FRIEND_VISIT") {
+        await api.recordFriendVisit(action.payload.friendId, action.payload.visitedAt, action.payload.notes);
+      } else if (action.type === "SET_RECURRING_BUDGET") {
+        await api.saveBudget(action.payload.category, action.payload.amount);
+      }
+      setMessages((current) => current.map((message) => ({ ...message, actions: message.actions?.filter((candidate) => candidate.id !== action.id) })));
+      setNotice(`Done: ${action.label}.`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : "The action could not be completed."); }
+  }
+
+  const weather = dashboard?.weather;
+  return (
+    <>
+      <PageTitle eyebrow="Family briefing" title="Today at a glance" />
+      {notice && <div className="notice">{notice}</div>}
+      {loading && <div className="loading-panel"><LoaderCircle className="spin" size={22} /> Preparing today...</div>}
+      {weather && (
+        <section className="weather-hero">
+          <div className="weather-main">
+            <div className="weather-location"><MapPin size={17} /> {weather.locationName}</div>
+            <div className="temperature-row"><strong>{Math.round(weather.temperatureC)}&deg;</strong><span>{weather.summary}<small>Feels like {Math.round(weather.apparentTemperatureC)}&deg;C</small></span></div>
+            <div className="weather-facts">
+              <span><CloudSun size={17} /> {Math.round(weather.lowC)}&deg; / {Math.round(weather.highC)}&deg;</span>
+              <span><Umbrella size={17} /> {weather.precipitationProbability}% rain</span>
+              <span><Wind size={17} /> {Math.round(weather.windSpeedKmh)} km/h</span>
+            </div>
+          </div>
+          <div className="location-control">
+            <label htmlFor="weather-city">Family location</label>
+            <div><input id="weather-city" value={location} onChange={(event) => setLocation(event.target.value)} onKeyDown={(event) => event.key === "Enter" && saveLocation()} placeholder="City or postcode" /><button onClick={saveLocation} disabled={weatherBusy} aria-label="Update weather location">{weatherBusy ? <LoaderCircle className="spin" size={17} /> : <Search size={17} />}</button></div>
+            <small>Used only to fetch your local forecast.</small>
+          </div>
+        </section>
+      )}
+      {!loading && !weather && (
+        <section className="weather-setup">
+          <CloudSun size={30} />
+          <div><h2>Add your family location</h2><p>Enter a city or postcode to see the forecast and clothing suggestions.</p></div>
+          <div className="location-setup-control"><input value={location} onChange={(event) => setLocation(event.target.value)} onKeyDown={(event) => event.key === "Enter" && saveLocation()} placeholder="City or postcode" aria-label="Family weather location" /><button onClick={saveLocation} disabled={weatherBusy}>{weatherBusy ? <LoaderCircle className="spin" size={17} /> : "Show weather"}</button></div>
+        </section>
+      )}
+      <div className="home-grid">
+        <section className="outfit-panel">
+          <div className="section-heading"><div><span>Ready to go</span><h2>What everyone can wear</h2></div><Shirt size={22} /></div>
+          <div className="outfit-list">
+            {(dashboard?.outfits ?? []).map((outfit) => (
+              <article className="outfit-row" key={outfit.profileId}>
+                <div className="profile-avatar">{outfit.profileName.slice(0, 2).toUpperCase()}</div>
+                <div><h3>{outfit.profileName}</h3><p>{outfit.layers.join(" / ")}</p><small>{outfit.note}</small></div>
+                <label className="warmth-toggle"><input type="checkbox" checked={outfit.note.startsWith("Adjusted warmer")} onChange={(event) => toggleWarmth(outfit.profileId, event.target.checked)} /><span>Runs cold</span></label>
+              </article>
+            ))}
+          </div>
+        </section>
+        <section className="assistant-panel">
+          <div className="assistant-heading"><div><MessageCircle size={20} /><span>Family assistant</span></div><small>Powered by Gemini</small></div>
+          <div className="assistant-thread" aria-live="polite">
+            {messages.map((message, index) => (
+              <div className={`chat-message ${message.role}`} key={`${message.role}-${index}`}>
+                <p>{message.text}</p>
+                {message.references?.map((reference) => (
+                  <a className="assistant-reference" key={reference.id} href={reference.url} target="_blank" rel="noreferrer">
+                    <Video size={15} /><span><strong>{reference.title}</strong><small>{reference.summary}</small></span><ExternalLink size={14} />
+                  </a>
+                ))}
+                {message.actions?.map((action) => <button key={action.id} onClick={() => confirmAssistantAction(action)}><Plus size={15} /> {action.label}</button>)}
+              </div>
+            ))}
+            {assistantBusy && <div className="chat-message assistant thinking"><LoaderCircle className="spin" size={18} /> Thinking...</div>}
+          </div>
+          <div className="assistant-composer"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askAssistant(); } }} placeholder="Ask or plan something..." aria-label="Message the family assistant" /><button onClick={askAssistant} disabled={assistantBusy || !question.trim()} aria-label="Send to assistant"><Send size={19} /></button></div>
+          <div className="assistant-quick-actions"><button onClick={() => setQuestion("Plan a calm family evening based on our routines.")}>Plan evening</button><button onClick={() => setQuestion("What should we prepare for tomorrow?")}>Prepare tomorrow</button><button onClick={() => goTo("tasks")}>Open tasks</button></div>
+          <p className="assistant-privacy">Your question and relevant family context are sent to Gemini to prepare the answer.</p>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function VideoLibraryPage() {
+  const [items, setItems] = useState<VideoLibraryItem[]>([]);
+  const [url, setUrl] = useState("");
+  const [notes, setNotes] = useState("");
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => { loadVideos(); }, []);
+
+  async function loadVideos(search = "") {
+    setLoading(true);
+    try { setItems(await api.videoLibrary(search)); }
+    catch (error) { setNotice(error instanceof Error ? error.message : "Video library could not be loaded."); }
+    finally { setLoading(false); }
+  }
+
+  async function addVideo() {
+    if (!url.trim()) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const item = await api.analyzeVideo(url, notes || undefined);
+      setUrl("");
+      setNotes("");
+      await loadVideos(query);
+      setNotice(item.status === "READY" ? "Video understood and added to semantic search." : item.errorMessage || "Link saved, but analysis is still pending.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Video could not be analyzed."); }
+    finally { setBusy(false); }
+  }
+
+  async function removeVideo(id: string) {
+    try {
+      await api.deleteVideo(id);
+      setItems((current) => current.filter((item) => item.id !== id));
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Video could not be removed."); }
+  }
+
+  return (
+    <>
+      <PageTitle eyebrow="Search by meaning" title="Video saves" />
+      {notice && <div className="notice">{notice}</div>}
+      <section className="video-capture-panel">
+        <div><span className="section-kicker">Add knowledge</span><h2>Turn useful videos into a searchable library</h2><p>Paste a public YouTube, Instagram, or TikTok link for AI analysis. FamOps keeps only the original link and searchable understanding; temporary media is deleted after analysis.</p></div>
+        <div className="video-capture-form">
+          <label>Video link<input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="YouTube, Instagram or TikTok URL" /></label>
+          <label>Caption or notes <small>Optional for YouTube</small><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Paste the reel caption, transcript, ingredients, or your own notes..." /></label>
+          <button onClick={addVideo} disabled={busy || !url.trim()}>{busy ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />} {busy ? "Understanding video..." : "Analyze and save"}</button>
+        </div>
+      </section>
+      <section className="video-library-panel">
+        <div className="video-search"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === "Enter" && loadVideos(query)} placeholder="Search biryani, cooking, toddler activities..." aria-label="Search saved videos" /><button onClick={() => loadVideos(query)}>Search</button></div>
+        {loading ? <div className="loading-panel"><LoaderCircle className="spin" size={20} /> Searching your saves...</div> : (
+          <div className="video-result-grid">
+            {items.map((item) => (
+              <article className="video-result-card" key={item.id}>
+                <div className="video-result-top"><span className={`platform-tag ${item.platform.toLowerCase()}`}>{item.platform}</span><span>{item.contentType}</span>{item.similarity !== undefined && <span>{Math.round(item.similarity * 100)}% match</span>}</div>
+                <h2>{item.title}</h2><p>{item.summary}</p>
+                <div className="topic-row">{item.topics.slice(0, 6).map((topic) => <span key={topic}>{topic}</span>)}</div>
+                {item.status !== "READY" && <div className="analysis-pending">{item.errorMessage}</div>}
+                <div className="video-card-actions"><a href={item.url} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Open video</a><button onClick={() => removeVideo(item.id)} aria-label={`Delete ${item.title}`}><Trash2 size={16} /></button></div>
+              </article>
+            ))}
+            {!items.length && <div className="empty-video-library"><Video size={28} /><h2>No matching videos</h2><p>Add your first useful link or try a broader search.</p></div>}
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -747,6 +1028,8 @@ function KitchenPage() {
   const [candidateTargetDays, setCandidateTargetDays] = useState<Record<string, number>>({});
   const [pickedMeals, setPickedMeals] = useState<PickedMeal[]>([]);
   const [savedMeals, setSavedMeals] = useState<MealPlanEntry[]>([]);
+  const [shoppingList, setShoppingList] = useState<WeeklyShoppingListData | null>(null);
+  const [shoppingBusy, setShoppingBusy] = useState(false);
   const [manualMeal, setManualMeal] = useState({
     day: 1,
     mealType: "DINNER" as MealType,
@@ -755,8 +1038,7 @@ function KitchenPage() {
     calories: 350,
     proteinGrams: 12,
     cuisine: "Manual",
-    notes: "",
-    shoppingText: ""
+    notes: ""
   });
   const [servings, setServings] = useState<MealServings>({ adults: 2, kids: 2 });
 
@@ -771,6 +1053,7 @@ function KitchenPage() {
 
   useEffect(() => {
     loadMealPlan();
+    setShoppingList(null);
   }, [planStartDate]);
 
   async function loadMealPlan() {
@@ -936,10 +1219,9 @@ function KitchenPage() {
         cuisine: manualMeal.cuisine,
         notes: manualMeal.notes,
         servingsAdults: servings.adults,
-        servingsKids: servings.kids,
-        shoppingItems: parseManualShoppingItems(manualMeal.shoppingText)
+        servingsKids: servings.kids
       });
-      setManualMeal((current) => ({ ...current, recipeTitle: "", notes: "", shoppingText: "" }));
+      setManualMeal((current) => ({ ...current, recipeTitle: "", notes: "" }));
       await loadMealPlan();
       setNotice("Manual meal added to the week plan.");
     } catch (error) {
@@ -953,13 +1235,42 @@ function KitchenPage() {
     setNotice("Meal removed from the saved plan.");
   }
 
+  async function openShoppingList(regenerate = false) {
+    setShoppingBusy(true);
+    try {
+      const existing = regenerate ? null : await api.weeklyShoppingList(planStartDate);
+      const result = existing?.items.length ? existing : await api.generateWeeklyShoppingList(planStartDate);
+      setShoppingList(withShoppingClientIds(result));
+      setNotice(regenerate ? "Weekly shopping list regenerated from saved meals." : "Weekly shopping list ready to review and edit.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Shopping list could not be generated."); }
+    finally { setShoppingBusy(false); }
+  }
+
+  function updateShoppingItem(index: number, patch: Partial<ShoppingItem>) {
+    setShoppingList((current) => current ? { ...current, items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) } : current);
+  }
+
+  function removeShoppingItem(index: number) {
+    setShoppingList((current) => current ? { ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) } : current);
+  }
+
+  function addShoppingItem() {
+    setShoppingList((current) => current ? { ...current, items: [...current.items, { clientId: crypto.randomUUID(), name: "", quantity: 1, unit: "pcs", category: "OTHER" }] } : current);
+  }
+
+  async function saveShoppingList() {
+    if (!shoppingList) return;
+    setShoppingBusy(true);
+    try {
+      const saved = await api.saveWeeklyShoppingList(planStartDate, shoppingList.items.filter((item) => item.name.trim()));
+      setShoppingList(withShoppingClientIds(saved));
+      setNotice("Edited weekly shopping list saved.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Shopping list could not be saved."); }
+    finally { setShoppingBusy(false); }
+  }
+
   const weekCalories = savedMeals.reduce((sum, meal) => sum + meal.calories, 0) + pickedMeals.reduce((sum, meal) => sum + (meal.recipe.calories ?? 0), 0);
   const weekProtein = savedMeals.reduce((sum, meal) => sum + meal.proteinGrams, 0) + pickedMeals.reduce((sum, meal) => sum + (meal.recipe.proteinGrams ?? 0), 0);
-  const weeklyShoppingItems = aggregateShoppingItems([
-    ...savedMeals.flatMap((meal) => meal.shoppingItems ?? []),
-    ...pickedMeals.flatMap((meal) => meal.recipe.shoppingItems ?? [])
-  ]);
-
   const includeOptions = Array.from(new Set([...mealIncludes, ...includes]));
 
   function planKidsDay() {
@@ -1031,8 +1342,8 @@ function KitchenPage() {
         </article>
         <article>
           <span>Shopping</span>
-          <strong>{weeklyShoppingItems.length}</strong>
-          <p>weekly buy items</p>
+          <strong>{shoppingList?.items.length ?? "-"}</strong>
+          <p>generated on request</p>
         </article>
       </section>
       <section className="kitchen-studio">
@@ -1164,7 +1475,16 @@ function KitchenPage() {
         onAddManual={addManualMeal}
         onDeleteSaved={deleteSavedMeal}
       />
-      <WeeklyShoppingList items={weeklyShoppingItems} />
+      <WeeklyShoppingList
+        data={shoppingList}
+        busy={shoppingBusy}
+        onOpen={() => openShoppingList(false)}
+        onRegenerate={() => openShoppingList(true)}
+        onUpdate={updateShoppingItem}
+        onRemove={removeShoppingItem}
+        onAdd={addShoppingItem}
+        onSave={saveShoppingList}
+      />
       <PickedMealPlan meals={pickedMeals} onRemove={removePickedMeal} onSave={savePickedPlan} saving={savingPlan} />
       {familyResult && (
         <>
@@ -1433,14 +1753,6 @@ function WeeklyMealPlanner({
           Protein
           <input type="number" min="0" value={manualMeal.proteinGrams} onChange={(event) => onManualChange({ ...manualMeal, proteinGrams: Number(event.target.value) })} />
         </label>
-        <label className="manual-shopping">
-          Shop items
-          <input
-            value={manualMeal.shoppingText}
-            onChange={(event) => onManualChange({ ...manualMeal, shoppingText: event.target.value })}
-            placeholder="tomato 3 pcs, eggs 6 pcs"
-          />
-        </label>
         <button onClick={onAddManual}>
           <Plus size={16} /> Add manual
         </button>
@@ -1489,8 +1801,24 @@ function WeeklyMealPlanner({
   );
 }
 
-function WeeklyShoppingList({ items }: { items: ShoppingItem[] }) {
-  const byCategory = groupShoppingItems(items);
+function WeeklyShoppingList({ data, busy, onOpen, onRegenerate, onUpdate, onRemove, onAdd, onSave }: {
+  data: WeeklyShoppingListData | null;
+  busy: boolean;
+  onOpen: () => void;
+  onRegenerate: () => void;
+  onUpdate: (index: number, patch: Partial<ShoppingItem>) => void;
+  onRemove: (index: number) => void;
+  onAdd: () => void;
+  onSave: () => void;
+}) {
+  if (!data) {
+    return (
+      <section className="shopping-panel shopping-collapsed">
+        <div><span className="section-kicker">Optional shopping helper</span><h2>Build a list from this week</h2><p>Generate quantities only after your meals are saved. Pantry basics and masalas are left out.</p></div>
+        <button onClick={onOpen} disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <ListTodo size={17} />} List ingredients to shop</button>
+      </section>
+    );
+  }
   return (
     <section className="shopping-panel">
       <div className="planner-header">
@@ -1498,28 +1826,24 @@ function WeeklyShoppingList({ items }: { items: ShoppingItem[] }) {
           <span>Weekly shopping</span>
           <h2>Ingredients to buy for planned meals</h2>
         </div>
-        <div className="planner-total-pill">{items.length} core items</div>
+        <div className="shopping-actions"><span className="planner-total-pill">{data.items.length} core items</span><button className="secondary-planner-action" onClick={onRegenerate} disabled={busy}>Regenerate</button><button onClick={onSave} disabled={busy}><Save size={16} /> Save changes</button></div>
       </div>
-      {items.length ? (
-        <div className="shopping-category-grid">
-          {Object.entries(byCategory).map(([category, categoryItems]) => (
-            <article className="shopping-category" key={category}>
-              <h3>{titleCase(category)}</h3>
-              <div className="shopping-list">
-                {categoryItems.map((item) => (
-                  <div className="shopping-item" key={`${item.category}-${item.name}-${item.unit}`}>
-                    <strong>{item.name}</strong>
-                    <span>
-                      {formatQuantity(item.quantity)} {item.unit}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </article>
+      {data.items.length ? (
+        <div className="shopping-edit-list">
+          <div className="shopping-edit-head"><span>Item</span><span>Quantity</span><span>Unit</span><span>Category</span><span /></div>
+          {data.items.map((item, index) => (
+            <div className="shopping-edit-row" key={item.clientId}>
+              <input value={item.name} onChange={(event) => onUpdate(index, { name: event.target.value })} aria-label="Shopping item name" />
+              <input type="number" min="0" step="0.1" value={item.quantity} onChange={(event) => onUpdate(index, { quantity: Number(event.target.value) })} aria-label={`${item.name} quantity`} />
+              <input value={item.unit} onChange={(event) => onUpdate(index, { unit: event.target.value })} aria-label={`${item.name} unit`} />
+              <select value={item.category} onChange={(event) => onUpdate(index, { category: event.target.value as ShoppingItem["category"] })} aria-label={`${item.name} category`}>{["VEGETABLE", "PROTEIN", "GRAIN", "DAIRY", "FRUIT", "OTHER"].map((category) => <option value={category} key={category}>{titleCase(category)}</option>)}</select>
+              <button className="icon-button danger" onClick={() => onRemove(index)} aria-label={`Remove ${item.name || "shopping item"}`}><Trash2 size={16} /></button>
+            </div>
           ))}
+          <button className="secondary-planner-action add-shopping-item" onClick={onAdd}><Plus size={16} /> Add item</button>
         </div>
       ) : (
-        <div className="empty-lane">Pick or save meals to build the weekly grocery list.</div>
+        <div className="empty-lane">No core ingredients were needed. Add an item manually or regenerate after adding meals.</div>
       )}
     </section>
   );
@@ -1597,64 +1921,8 @@ function mergePickedMeals(current: PickedMeal[], incoming: PickedMeal[]) {
   return [...current, ...incoming.filter((meal) => !existing.has(meal.id))];
 }
 
-function parseManualShoppingItems(text: string): ShoppingItem[] {
-  return text
-    .split(/[,;\n]/)
-    .map((raw) => raw.trim())
-    .filter(Boolean)
-    .map((raw) => {
-      const match = raw.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*([a-zA-Z]+|pcs|bunch)?$/);
-      const name = titleCase((match?.[1] ?? raw).trim());
-      const quantity = match ? Number(match[2]) : 1;
-      const unit = match?.[3] ?? "pcs";
-      return {
-        name,
-        quantity,
-        unit,
-        category: classifyShoppingItem(name)
-      };
-    })
-    .filter((item) => !isMasalaLike(item.name));
-}
-
-function aggregateShoppingItems(items: ShoppingItem[]) {
-  const merged = new Map<string, ShoppingItem>();
-  for (const item of items) {
-    if (!item?.name || isMasalaLike(item.name)) continue;
-    const key = `${item.name.toLowerCase()}-${item.unit.toLowerCase()}-${item.category}`;
-    const existing = merged.get(key);
-    if (existing) {
-      merged.set(key, { ...existing, quantity: roundQuantity(existing.quantity + Number(item.quantity || 0)) });
-    } else {
-      merged.set(key, { ...item, name: titleCase(item.name), quantity: roundQuantity(Number(item.quantity || 1)) });
-    }
-  }
-  return Array.from(merged.values()).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
-}
-
-function groupShoppingItems(items: ShoppingItem[]) {
-  return items.reduce<Record<string, ShoppingItem[]>>((groups, item) => {
-    groups[item.category] = [...(groups[item.category] ?? []), item];
-    return groups;
-  }, {});
-}
-
-function classifyShoppingItem(name: string): ShoppingItem["category"] {
-  const lower = name.toLowerCase();
-  if (/chicken|fish|egg|paneer|tofu|dal|lentil|chickpea|rajma|bean/.test(lower)) return "PROTEIN";
-  if (/rice|oat|ragi|jowar|millet|pasta|noodle|poha|suji|rava|wheat|rotti|dosa/.test(lower)) return "GRAIN";
-  if (/curd|yogurt|milk|cheese/.test(lower)) return "DAIRY";
-  if (/banana|apple|pear|mango|papaya|watermelon|avocado|fruit/.test(lower)) return "FRUIT";
-  if (/tomato|onion|carrot|spinach|cucumber|beans|peas|capsicum|pumpkin|potato|coriander|parsley|vegetable|veggie|gourd|beetroot|corn|palak/.test(lower)) return "VEGETABLE";
-  return "OTHER";
-}
-
-function isMasalaLike(name: string) {
-  return /masala|chilli|chili|turmeric|cumin|mustard|pepper|asafoetida|hing|garam|sambar powder|rasam powder/i.test(name);
-}
-
-function roundQuantity(value: number) {
-  return Math.round(value * 10) / 10;
+function withShoppingClientIds(list: WeeklyShoppingListData): WeeklyShoppingListData {
+  return { ...list, items: list.items.map((item) => ({ ...item, clientId: crypto.randomUUID() })) };
 }
 
 function formatQuantity(value: number) {
@@ -1704,7 +1972,11 @@ function FriendsPage() {
   const [friendForm, setFriendForm] = useState({ name: "", notes: "", preferredGapWeeks: 7, lastMetAt: "" });
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, { name: string; notes: string; preferredGapWeeks: number; lastMetAt: string }>>({});
+  const [visitForm, setVisitForm] = useState({ friendId: "", visitedAt: new Date().toISOString().slice(0, 10), notes: "" });
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiReply, setAiReply] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, { name: string; notes: string; preferredGapWeeks: number }>>({});
 
   useEffect(() => {
     loadFriends();
@@ -1714,6 +1986,7 @@ function FriendsPage() {
     try {
       const data = await api.friends();
       setDashboard(data);
+      setVisitForm((current) => ({ ...current, friendId: current.friendId || data.friends[0]?.id || "" }));
       setDrafts(
         Object.fromEntries(
           data.friends.map((friend) => [
@@ -1721,8 +1994,7 @@ function FriendsPage() {
             {
               name: friend.name,
               notes: friend.notes ?? "",
-              preferredGapWeeks: friend.preferredGapWeeks,
-              lastMetAt: friend.lastMetAt?.slice(0, 10) ?? ""
+              preferredGapWeeks: friend.preferredGapWeeks
             }
           ])
         )
@@ -1761,8 +2033,7 @@ function FriendsPage() {
     await api.updateFriend(friendId, {
       name: draft.name,
       notes: draft.notes,
-      preferredGapWeeks: draft.preferredGapWeeks,
-      lastMetAt: draft.lastMetAt ? `${draft.lastMetAt}T12:00:00.000Z` : ""
+      preferredGapWeeks: draft.preferredGapWeeks
     });
     await loadFriends();
     setMessage("Friend updated.");
@@ -1772,6 +2043,39 @@ function FriendsPage() {
     await api.markFriendMet(friendId);
     await loadFriends();
     setMessage("Marked as met today. The loop has moved on.");
+  }
+
+  async function recordVisit() {
+    if (!visitForm.friendId || !visitForm.visitedAt) {
+      setMessage("Choose a friend and visit date.");
+      return;
+    }
+    try {
+      await api.recordFriendVisit(visitForm.friendId, `${visitForm.visitedAt}T12:00:00.000Z`, visitForm.notes || undefined);
+      setVisitForm((current) => ({ ...current, notes: "" }));
+      await loadFriends();
+      setMessage("Visit added to the history.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Visit could not be saved."); }
+  }
+
+  async function deleteVisit(friendId: string, visitId: string) {
+    try {
+      await api.deleteFriendVisit(friendId, visitId);
+      await loadFriends();
+      setMessage("Visit removed and the friend schedule recalculated.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Visit could not be removed."); }
+  }
+
+  async function askFriendAssistant() {
+    const question = aiQuestion.trim();
+    if (!question || aiBusy) return;
+    setAiBusy(true);
+    try {
+      const result = await api.friendAssistant(question);
+      setAiReply(result.reply);
+      setAiQuestion("");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Friend planning assistant could not answer."); }
+    finally { setAiBusy(false); }
   }
 
   async function deleteFriend(friendId: string) {
@@ -1811,6 +2115,32 @@ function FriendsPage() {
           </article>
         ))}
       </section>
+      <section className="friend-tools-grid">
+        <article className="friend-visit-panel">
+          <div className="planner-header"><div><span>Visit log</span><h2>Record a catch-up</h2></div><CalendarDays size={20} /></div>
+          <div className="friend-visit-form">
+            <label>Friend<select value={visitForm.friendId} onChange={(event) => setVisitForm({ ...visitForm, friendId: event.target.value })}>{(dashboard?.friends ?? []).map((friend) => <option value={friend.id} key={friend.id}>{friend.name}</option>)}</select></label>
+            <label>Date<input type="date" value={visitForm.visitedAt} onChange={(event) => setVisitForm({ ...visitForm, visitedAt: event.target.value })} /></label>
+            <label className="visit-notes">Notes<input value={visitForm.notes} onChange={(event) => setVisitForm({ ...visitForm, notes: event.target.value })} placeholder="Dinner, playground, family visit..." /></label>
+            <button onClick={recordVisit} disabled={!visitForm.friendId}><Plus size={16} /> Save visit</button>
+          </div>
+        </article>
+        <article className="friend-ai-panel">
+          <div className="planner-header"><div><span>AI planner</span><h2>Plan the social loop</h2></div><Sparkles size={20} /></div>
+          {aiReply && <p className="friend-ai-reply">{aiReply}</p>}
+          <div className="friend-ai-composer"><textarea value={aiQuestion} onChange={(event) => setAiQuestion(event.target.value)} placeholder="Who should we meet over the next month?" /><button onClick={askFriendAssistant} disabled={aiBusy || !aiQuestion.trim()}>{aiBusy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}</button></div>
+        </article>
+      </section>
+      <section className="friend-history-panel">
+        <div className="planner-header"><div><span>History</span><h2>Past visits</h2></div><span>{dashboard?.visits.length ?? 0} logged</span></div>
+        <div className="friend-history-list">
+          {(dashboard?.visits ?? []).map((visit) => {
+            const friend = dashboard?.friends.find((candidate) => candidate.id === visit.friendId);
+            return <div className="friend-history-row" key={visit.id}><div><strong>{friend?.name ?? "Former friend"}</strong><span>{formatShortDate(visit.visitedAt.slice(0, 10))}</span></div><p>{visit.notes || "No notes"}</p><button className="icon-button danger" onClick={() => deleteVisit(visit.friendId, visit.id)} aria-label={`Delete visit with ${friend?.name ?? "friend"}`}><Trash2 size={16} /></button></div>;
+          })}
+          {!dashboard?.visits.length && <div className="empty-lane">No visits recorded yet.</div>}
+        </div>
+      </section>
       <section className="friend-list card">
         <div className="planner-header">
           <div>
@@ -1820,7 +2150,7 @@ function FriendsPage() {
         </div>
         <div className="friend-edit-list">
           {(dashboard?.friends ?? []).map((friend) => {
-            const draft = drafts[friend.id] ?? { name: friend.name, notes: friend.notes ?? "", preferredGapWeeks: friend.preferredGapWeeks, lastMetAt: friend.lastMetAt?.slice(0, 10) ?? "" };
+            const draft = drafts[friend.id] ?? { name: friend.name, notes: friend.notes ?? "", preferredGapWeeks: friend.preferredGapWeeks };
             return (
               <div className="friend-edit-row" key={friend.id}>
                 <input value={draft.name} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, name: event.target.value } }))} />
@@ -1829,10 +2159,7 @@ function FriendsPage() {
                   Gap
                   <input type="number" min="1" value={draft.preferredGapWeeks} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, preferredGapWeeks: Number(event.target.value) } }))} />
                 </label>
-                <label>
-                  Last met
-                  <input type="date" value={draft.lastMetAt} onChange={(event) => setDrafts((current) => ({ ...current, [friend.id]: { ...draft, lastMetAt: event.target.value } }))} />
-                </label>
+                <div className="friend-last-met"><span>Last met</span><strong>{friend.lastMetAt ? formatShortDate(friend.lastMetAt.slice(0, 10)) : "Not logged"}</strong></div>
                 <button onClick={() => saveFriend(friend.id)}><Save size={15} /></button>
                 <button className="danger" onClick={() => deleteFriend(friend.id)}><Trash2 size={15} /></button>
               </div>
@@ -2208,8 +2535,9 @@ function FinancePage() {
   }
 
   async function saveBudget(targetCategory: ExpenseCategory) {
-    await api.saveBudget(month, targetCategory, budgetDrafts[targetCategory] ?? 0);
+    await api.saveBudget(targetCategory, budgetDrafts[targetCategory] ?? 0);
     await loadDashboard(month);
+    setFinanceNotice("Recurring category limit saved for every month.");
   }
 
   async function analyzeBill() {
@@ -2298,8 +2626,8 @@ function FinancePage() {
           <section className="budget-panel">
             <div className="section-heading">
               <div>
-                <span>Monthly limits</span>
-                <h2>Category budgets</h2>
+                <span>Recurring limits</span>
+                <h2>Category budgets for every month</h2>
               </div>
             </div>
             <div className="budget-grid">
@@ -2310,7 +2638,7 @@ function FinancePage() {
                   <article className={`budget-item ${overBudget ? "over" : ""}`} key={budget.category}>
                     <header>
                       <strong>{label}</strong>
-                      <span>EUR {budget.spent.toFixed(0)} spent</span>
+                      <span>EUR {budget.spent.toFixed(0)} spent / recurring</span>
                     </header>
                     <div className="budget-track">
                       <span style={{ width: `${Math.min(budget.percentage, 100)}%` }} />

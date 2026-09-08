@@ -8,6 +8,118 @@ export type Profile = {
   initials: string;
   isParent: boolean;
   stars: number;
+  runsCold?: boolean;
+};
+
+export type WeatherSnapshot = {
+  locationName: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  observedAt: string;
+  temperatureC: number;
+  apparentTemperatureC: number;
+  precipitationProbability: number;
+  weatherCode: number;
+  windSpeedKmh: number;
+  highC: number;
+  lowC: number;
+  sunrise: string;
+  sunset: string;
+  summary: string;
+};
+
+export type OutfitRecommendation = {
+  profileId: string;
+  profileName: string;
+  layers: string[];
+  note: string;
+};
+
+export type HomeDashboard = {
+  weather: WeatherSnapshot | null;
+  outfits: OutfitRecommendation[];
+};
+
+type AssistantActionBase = {
+  id: string;
+  label: string;
+};
+
+export type AssistantAction = AssistantActionBase & (
+  | {
+      type: "CREATE_TASK";
+      payload: {
+        title: string;
+        description?: string;
+        dueDate?: string;
+        assignedToId?: string;
+      };
+    }
+  | {
+      type: "UPDATE_TASK_STATUS";
+      payload: { taskId: string; status: TaskStatus };
+    }
+  | {
+      type: "ADD_ROUTINE_ITEMS";
+      payload: { routineIds: string[]; title: string; assignedToId?: string };
+    }
+  | {
+      type: "COMPLETE_ROUTINE_ITEMS";
+      payload: { routineItemIds: string[] };
+    }
+  | {
+      type: "ADD_MEAL";
+      payload: {
+        date: string;
+        mealType: MealType;
+        audience: "family" | "kids";
+        recipeTitle: string;
+        notes?: string;
+      };
+    }
+  | {
+      type: "RECORD_FRIEND_VISIT";
+      payload: { friendId: string; visitedAt: string; notes?: string };
+    }
+  | {
+      type: "SET_RECURRING_BUDGET";
+      payload: { category: ExpenseCategory; amount: number };
+    }
+);
+
+export type AssistantReference = {
+  type: "VIDEO";
+  id: string;
+  title: string;
+  url: string;
+  summary: string;
+};
+
+export type AssistantReply = {
+  reply: string;
+  actions: AssistantAction[];
+  references: AssistantReference[];
+  provider: "GEMINI";
+};
+
+export type VideoPlatform = "YOUTUBE" | "INSTAGRAM" | "TIKTOK" | "OTHER";
+export type VideoAnalysisStatus = "READY" | "NEEDS_PROVIDER" | "FAILED";
+
+export type VideoLibraryItem = {
+  id: string;
+  familyId: string;
+  url: string;
+  platform: VideoPlatform;
+  title: string;
+  summary: string;
+  transcript: string;
+  topics: string[];
+  contentType: string;
+  status: VideoAnalysisStatus;
+  errorMessage?: string;
+  createdAt: string;
+  similarity?: number;
 };
 
 export type RewardCategory = "TREAT" | "OUTING" | "TOY" | "SPORT" | "ACTIVITY" | "CUSTOM";
@@ -110,6 +222,7 @@ export type MealServings = {
 };
 
 export type ShoppingItem = {
+  clientId?: string;
   name: string;
   quantity: number;
   unit: string;
@@ -178,7 +291,15 @@ export type MealPlanEntry = {
   notes?: string;
   servingsAdults: number;
   servingsKids: number;
+  ingredientsUsed: string[];
   shoppingItems: ShoppingItem[];
+};
+
+export type WeeklyShoppingList = {
+  id?: string;
+  weekStart: string;
+  items: ShoppingItem[];
+  updatedAt?: string;
 };
 
 export type Friend = {
@@ -202,10 +323,23 @@ export type FriendSuggestion = {
   message: string;
 };
 
+export type FriendVisit = {
+  id: string;
+  familyId: string;
+  friendId: string;
+  visitedAt: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type FriendCircleDashboard = {
   friends: Friend[];
+  visits: FriendVisit[];
   suggestions: FriendSuggestion[];
 };
+
+export type FriendAssistantReply = { reply: string; provider: "GEMINI" };
 
 export type AiStatus = {
   provider: "GEMINI";
@@ -253,6 +387,7 @@ export type FinanceDashboard = {
     spent: number;
     remaining: number;
     percentage: number;
+    recurring: boolean;
   }>;
   expenses: Expense[];
 };
